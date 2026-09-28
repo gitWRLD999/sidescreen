@@ -1,0 +1,22 @@
+name: Windows build
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and test
+        shell: powershell
+        run: .\build.ps1 -Test
+      - name: Parse PowerShell scripts
+        shell: powershell
+        run: |
+          @(Get-ChildItem scripts -Filter *.ps1) + @(Get-Item build.ps1) | ForEach-Object {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors)
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }

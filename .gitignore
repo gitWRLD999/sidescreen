@@ -1,0 +1,10 @@
+dist/
+work/
+*.log
+*.png
+*.zip
+tray-status.txt
+last-operation.log
+.vs/
+bin/
+obj/
