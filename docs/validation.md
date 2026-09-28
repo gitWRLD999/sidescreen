@@ -1,6 +1,6 @@
 # Release validation
 
-The release was built and tested on Windows x64 with an active physical display and an MTT virtual display. The non-UI suite passed 11 checks, and the live disposable-window placement suite passed 17 checks including agent-display placement, foreground and cursor preservation. `Status`, `Windows` and `Candidates` returned valid JSON. Capture wrote a PNG of the agent display. The Codex skill passed `quick_validate.py` and all PowerShell scripts parsed successfully.
+The release was built and tested on Windows x64 with an active physical display and an MTT virtual display. The non-UI suite passed 11 checks, and the live disposable-window placement suite passed 17 checks including agent-display placement, foreground and cursor preservation. `Status`, `Windows` and `Candidates` returned valid JSON. Capture wrote a PNG of the agent display. A disposable window placed there appeared in ChatGPT computer use and its read-only window screenshot showed the correct content and coordinates. The Codex skill passed `quick_validate.py` and all PowerShell scripts parsed successfully.
 
 Coverage: display identity and recovery selection, missing/ambiguous monitors, negative monitor coordinates, build correctness, JSON diagnostics, and a live move of a disposable nonactivating window with foreground/cursor checks.
 

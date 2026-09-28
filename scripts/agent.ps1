@@ -20,7 +20,7 @@ try {
                 $screen=@{id=[SideScreen.Layout]::Id($agent);deviceName=$agent.GdiName;hardwareId=$agent.MonitorHardwareId;x=$agent.X;y=$agent.Y;width=$agent.Width;height=$agent.Height}
             }
             $physicalScreens=@($physical | ForEach-Object { @{id=[SideScreen.Layout]::Id($_);deviceName=$_.GdiName;x=$_.X;y=$_.Y;width=$_.Width;height=$_.Height} })
-            @{ok=$true;available=($virtual.Count -eq 1);agentScreen=$screen;physicalScreens=$physicalScreens;inputIsolation=$false;version='0.1.0'} | ConvertTo-Json -Depth 5
+            @{ok=$true;available=($virtual.Count -eq 1);agentScreen=$screen;physicalScreens=$physicalScreens;inputIsolation=$false;version='0.1.1'} | ConvertTo-Json -Depth 5
         }
         'Windows' { @{ok=$true;scope='agent screen';windows=@([SideScreen.Windows]::ListOnAgentDisplay())} | ConvertTo-Json -Depth 6 }
         'Candidates' { @{ok=$true;scope='all visible windows';windows=@([SideScreen.Windows]::List())} | ConvertTo-Json -Depth 6 }

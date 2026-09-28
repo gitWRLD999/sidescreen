@@ -9,6 +9,10 @@ foreach($name in @('SideScreen.exe','SideScreen.Core.dll','agent.ps1','display.p
     if(!(Test-Path -LiteralPath (Join-Path $source $name))) { throw "Missing $name; extract the complete release first." }
 }
 if(!(Test-Path -LiteralPath $skillSource)) { throw 'Missing skills\sidescreen\SKILL.md; extract the complete release first.' }
+$installedExe=Join-Path $destination 'SideScreen.exe'
+if(@(Get-Process -Name SideScreen -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $installedExe }).Count) {
+    throw 'Exit the running SideScreen tray app before installing this update.'
+}
 New-Item -ItemType Directory -Path $destination,$skillDestination -Force | Out-Null
 foreach($name in @('SideScreen.exe','SideScreen.Core.dll','agent.ps1','display.ps1','README.md','LICENSE')) {
     Copy-Item -LiteralPath (Join-Path $source $name) -Destination (Join-Path $destination $name) -Force

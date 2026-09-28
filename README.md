@@ -20,10 +20,11 @@ Early release: Windows x64, one active MTT virtual monitor. Driver binaries, rem
 ## Quick start
 
 1. Install [VirtualDrivers' Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) from its official release. Keep a physical display enabled and choose **Extend these displays** in Windows Display Settings.
-2. Download `SideScreen-0.1.0-win-x64.zip` from this repository's [releases](https://github.com/gitWRLD999/sidescreen/releases), or build from source below. Extract the whole folder. Run `SideScreen.exe`, or run `install-user.ps1 -StartTray -StartAtLogin` to copy the tools to `%LOCALAPPDATA%\SideScreenTools`, install the Codex skill, and start the tray at future sign-ins. Omit `-StartAtLogin` if you want to launch it manually.
+2. Download `SideScreen-0.1.1-win-x64.zip` from this repository's [releases](https://github.com/gitWRLD999/sidescreen/releases), or build from source below. Extract the whole folder. Run `SideScreen.exe`, or run `install-user.ps1 -StartTray -StartAtLogin` to copy the tools to `%LOCALAPPDATA%\SideScreenTools`, install the Codex skill, and start the tray at future sign-ins. Omit `-StartAtLogin` if you want to launch it manually.
 3. Open the tray controls. Use **View screen** for a preview; use the commands below to place a normal window on the agent screen.
 
 Windows requests elevation only when enabling or disabling the driver. Viewing, listing, capture and placement run as your ordinary Windows user. The app does not install a driver, change screen resolutions, or start a remote server.
+To update an existing installation, exit the SideScreen tray app before running `install-user.ps1` again.
 
 If only the virtual display is active, preview/recovery and **Turn off** are unavailable. Enable a physical screen in Windows Display Settings; opening the laptop lid may be enough. This preserves the only remaining display instead of leaving you without remote video.
 
@@ -55,7 +56,7 @@ Commands return JSON. Exit code `0` means success, `1` means a refused/failed op
 
 Browser DOM automation and supported accessibility actions are possible companion approaches. SideScreen does not implement or guarantee their input behavior. See [related projects](docs/related-projects.md) for options and the [agent integration guide](docs/agents.md) for the operating contract.
 
-For Codex/ChatGPT computer use, install the [SideScreen skill](skills/sidescreen/SKILL.md) and read the [computer-use integration note](docs/chatgpt.md). It gives agents a repeatable discovery and scoping workflow; it does not alter the computer-use tool's input behavior.
+For Codex/ChatGPT computer use, install the [SideScreen skill](skills/sidescreen/SKILL.md) and read the [computer-use integration note](docs/chatgpt.md). It gives agents a repeatable discovery and scoping workflow; it does not alter the computer-use tool's input behavior. Current ChatGPT Windows computer-use input automatically activates its target window.
 The release's `install-user.ps1` installs the skill into the current user's Codex skill directory. Restart Codex or begin a new task if it does not discover a newly installed skill immediately.
 
 ## Build and verify
