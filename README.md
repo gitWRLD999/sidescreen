@@ -4,13 +4,14 @@
 
 Give agent windows somewhere to live, watch them in a passive preview, and bring them back when you need them. SideScreen manages an existing MTT virtual monitor and supplies a small JSON command interface for display status, window placement and screenshots.
 
-**Focus-preserving placement is implemented. Independent mouse and keyboard input is not.** Windows monitors in the same desktop share foreground focus and a pointer. SideScreen's agent commands never call `SetForegroundWindow`, `SendInput`, or `SetCursorPos`. Your automation backend must also support background operation; PyAutoGUI, ordinary desktop clicks and foreground keyboard automation can still interrupt your work.
+**Background input now works for supported classic Windows controls.** Agents can set text, invoke buttons, toggle system checkboxes and select list items through direct control messages. UI Automation discovers the controls; input never falls back to global clicks or typing. Arbitrary browser pages, custom canvases and modern windowless controls are not supported by this backend. Windows monitors still share one foreground window and pointer; this is not a separate input session. See [background input](docs/background-input.md) for supported controls and the limits of focus monitoring.
 
 ## What you get
 
 - A tray app to enable/disable an installed virtual display, preview it, and recover windows.
 - Window placement using `SWP_NOACTIVATE`, with a receipt reporting whether foreground focus and cursor position stayed the same.
 - JSON commands that agents can invoke locally or through an existing secure remote shell.
+- Scoped background input with one-use inspections, process identity checks, control readback, and foreground/keyboard-focus monitoring.
 - A passive preview that sends no keyboard or pointer input to the agent screen.
 - Support for physical monitors beyond the original laptop model, including displays positioned left of the primary monitor.
 - A guard that refuses to disable the virtual monitor when no usable physical screen is active.
@@ -20,7 +21,7 @@ Early release: Windows x64, one active MTT virtual monitor. Driver binaries, rem
 ## Quick start
 
 1. Install [VirtualDrivers' Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) from its official release. Keep a physical display enabled and choose **Extend these displays** in Windows Display Settings.
-2. Download `SideScreen-0.1.1-win-x64.zip` from this repository's [releases](https://github.com/gitWRLD999/sidescreen/releases), or build from source below. Extract the whole folder. Run `SideScreen.exe`, or run `install-user.ps1 -StartTray -StartAtLogin` to copy the tools to `%LOCALAPPDATA%\SideScreenTools`, install the Codex skill, and start the tray at future sign-ins. Omit `-StartAtLogin` if you want to launch it manually.
+2. Download `SideScreen-0.2.0-win-x64.zip` from this repository's [releases](https://github.com/gitWRLD999/sidescreen/releases), or build from source below. Extract the whole folder. Run `SideScreen.exe`, or run `install-user.ps1 -StartTray -StartAtLogin` to copy the tools to `%LOCALAPPDATA%\SideScreenTools`, install the Codex skill, and start the tray at future sign-ins. Omit `-StartAtLogin` if you want to launch it manually.
 3. Open the tray controls. Use **View screen** for a preview; use the commands below to place a normal window on the agent screen.
 
 Windows requests elevation only when enabling or disabling the driver. Viewing, listing, capture and placement run as your ordinary Windows user. The app does not install a driver, change screen resolutions, or start a remote server.
@@ -35,6 +36,8 @@ Run from the extracted release folder with Windows PowerShell:
 ```powershell
 .\agent.ps1 -Action Status
 .\agent.ps1 -Action Windows
+.\agent.ps1 -Action Inspect -WindowHandle 123456 -ExpectedDisplayId '<id from Status.agentScreen>'
+.\agent.ps1 -Action Act -WindowHandle 123456 -ExpectedDisplayId '<same display id>' -ObservationId '<id from Inspect>' -ElementId 3 -Operation SetValue -Value 'Hello'
 .\agent.ps1 -Action Candidates
 .\agent.ps1 -Action Move -WindowHandle 123456 -Destination Agent -ExpectedDisplayId '<id from Status.agentScreen>'
 .\agent.ps1 -Action Capture -ExpectedDisplayId '<id from Status.agentScreen>' -OutputPath "$env:TEMP\agent-screen-1.png"
@@ -45,18 +48,20 @@ Run from the extracted release folder with Windows PowerShell:
 
 Commands return JSON. Exit code `0` means success, `1` means a refused/failed operation, and `2` means placement completed but foreground focus or cursor position changed during the operation. Other processes and the target application can change focus themselves, so check the receipt and observe the result before continuing. Capture requires a new output filename and saves only the agent monitor.
 
+For input, inspect first and select a returned element's advertised `Actions`. Never guess an element number. Each inspection expires after two minutes and allows one action attempt; re-inspect after each action or refusal. Input requires the entire target window to fit inside the agent monitor. A timeout or focus-change report means stop and observe: the action may already have happened. Human mouse movement is allowed and reported separately.
+
 ## Keeping your screen yours
 
 | Layer | What it provides |
 | --- | --- |
 | Virtual Display Driver | Additional monitor space in your Windows desktop |
-| SideScreen | Placement without activation, passive preview, capture, recovery |
+| SideScreen | Placement, preview, capture, recovery, and background messages to supported classic controls |
 | Background automation backend | App-specific input without taking foreground focus, when supported |
 | Separate VM/session | Stronger separation for arbitrary foreground mouse/keyboard workflows |
 
-Browser DOM automation and supported accessibility actions are possible companion approaches. SideScreen does not implement or guarantee their input behavior. See [related projects](docs/related-projects.md) for options and the [agent integration guide](docs/agents.md) for the operating contract.
+Browser DOM automation and MouseMux are possible companion approaches for broader app coverage. SideScreen does not bundle them or guarantee their input behavior. See [related projects](docs/related-projects.md) for options and the [agent integration guide](docs/agents.md) for the operating contract.
 
-For Codex/ChatGPT computer use, install the [SideScreen skill](skills/sidescreen/SKILL.md) and read the [computer-use integration note](docs/chatgpt.md). It gives agents a repeatable discovery and scoping workflow; it does not alter the computer-use tool's input behavior. Current ChatGPT Windows computer-use input automatically activates its target window.
+For Codex/ChatGPT computer use, install the [SideScreen skill](skills/sidescreen/SKILL.md) and read the [computer-use integration note](docs/chatgpt.md). Use read-only computer-use screenshots for observation and SideScreen `Inspect`/`Act` for supported background actions. Built-in ChatGPT Windows clicks/typing still activate their target; the skill does not patch that tool.
 The release's `install-user.ps1` installs the skill into the current user's Codex skill directory. Restart Codex or begin a new task if it does not discover a newly installed skill immediately.
 
 ## Build and verify
@@ -66,15 +71,16 @@ No NuGet packages or SDK downloads are required. Use Windows x64 with .NET Frame
 ```powershell
 .\build.ps1 -Test
 .\dist\SideScreen.Tests.exe --live-placement
+.\tests\background-live.ps1
 ```
 
-The first command compiles the app and runs display-selection/layout tests. The second opens a disposable, nonactivating test window, moves it, checks foreground/cursor preservation and closes it. It does not move your existing windows. Do not run the live check while deliberately moving the mouse, since that correctly makes the cursor-preservation assertion fail.
+The first command compiles the app and runs display-selection/layout tests. The second moves a disposable nonactivating window and checks foreground/cursor preservation. Keep the pointer still for that placement check. The third starts a disposable app on the agent monitor and verifies Unicode text, button invocation, checkbox/list state, focus preservation and refusal paths. Background-input tests allow human pointer movement. Neither test moves your existing windows.
 
 CI builds on Windows and runs the non-UI checks. See [validation](docs/validation.md) for the checks performed for this release and their limits.
 
 ## Privacy and lifecycle
 
-The application has no network listener, telemetry, credential store or model connection. Window titles and screenshots can contain private information; command output goes to the caller and captures stay at the path you specify. Runtime logs are stored under `%LOCALAPPDATA%\SideScreen`, outside the checkout. Nothing is uploaded by the app.
+The application has no network listener, telemetry, credential store or model connection. Window titles and screenshots can contain private information; command output goes to the caller and captures stay at the path you specify. Logs and short-lived inspection records are stored under `%LOCALAPPDATA%\SideScreen`, outside the checkout. An input helper runs only during a command and is bounded by a 15-second timeout. Nothing is uploaded by the app.
 
 The tray app starts only when launched. To start it at sign-in, put a shortcut to `SideScreen.exe` in your own `shell:startup` folder. Driver enabled/disabled state is managed by Windows and can persist across restarts. Closing the tray app does not disable the display. No automatic topology restoration or input isolation is promised.
 

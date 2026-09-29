@@ -1,6 +1,6 @@
 ---
 name: sidescreen
-description: Discover and use the SideScreen virtual Windows monitor for agent windows, screenshots, and focus-preserving placement. Use when the user wants work on their agent screen or asks to keep their primary screen and focus free.
+description: Discover the SideScreen virtual Windows monitor and use scoped background input, screenshots, and focus-preserving placement. Use when the user wants agent work on their invisible screen without taking foreground focus.
 ---
 
 # SideScreen
@@ -11,6 +11,10 @@ Call `-Action Status` before acting. The `agentScreen` object supplies a current
 
 `-Action Windows` lists only windows on SideScreen. Use `-Action Candidates` only to find a user-authorized window to move. `-Action Move` and `-Action Capture` require `-ExpectedDisplayId` from a fresh Status result. A changed ID is refused, and a placement receipt tells you whether foreground focus and cursor position stayed intact. Re-enumerate window handles before moving; old handles can refer to a different window later.
 
-Observe the agent screen with `Capture` or a targeted window state. When using ChatGPT computer use, select exactly one returned app window whose app/title matches the scoped `Windows` list; its opaque window ID is not necessarily the Win32 handle. Choose an input backend that supports background operation for the target app. SideScreen places and captures windows but does not provide isolated mouse/keyboard input. ChatGPT computer-use Windows input automatically activates the target, even on this monitor. If maintaining focus is required and no background input route exists, explain the limitation and ask how the user wants to proceed. Never treat virtual monitor placement as permission to interact with unrelated windows.
+Before first input use, read `docs/background-input.md` beside the installed tool. Run `-Action Inspect -WindowHandle <handle> -ExpectedDisplayId <id>`. Choose an element by its name/type and advertised `Actions`. Run `-Action Act` with the same handle/display, `-ObservationId <observation.Id> -ElementId <element.Id> -Operation <action>`. `SetValue` also requires `-Value` and replaces all text. Actions are SetValue, Invoke, Toggle and Select for specific classic native controls. Each inspection permits one attempt and expires after two minutes; re-inspect after every action or refusal.
 
-See `docs/agents.md` beside the installed tool or in the repository for invocation examples and the operating contract. SideScreen has no server or secret; use the user's existing authenticated remote shell if controlling it from another machine.
+Read `ok`, `stop`, `dispatched`, `verification` and `focus`. On a timeout, unknown outcome or focus change, stop and observe; never repeat automatically or restore focus. Human pointer movement is allowed, so `CursorPreserved` is informational. Verify the resulting UI after button invocation. Empty actions mean unsupported, not permission to fall back to foreground input.
+
+Observe with `Capture` or a read-only computer-use snapshot. Match exactly one returned app/title against the scoped Windows list; its opaque computer-use ID is not necessarily a Win32 handle. Built-in ChatGPT Windows clicks/typing activate their target; route supported actions through SideScreen instead. For browser content prefer a separately verified DOM route. If no background route supports an action, explain the limitation. App handlers can activate dialogs themselves; monitoring detects changes during its bounded observation period, not all future behavior. Never interact with unrelated windows. This is not a separate input session or a security sandbox.
+
+See `docs/agents.md` beside the installed tool for the operating contract. Commands require the signed-in interactive Windows desktop. Remote agents need an existing authenticated broker in that session; an SSH service session may not see its windows. No SideScreen server or Muse-broker adapter is included.

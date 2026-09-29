@@ -1,10 +1,14 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Status','Windows','Candidates','Move','Capture')][string]$Action='Status',
+    [ValidateSet('Status','Windows','Candidates','Move','Capture','Inspect','Act')][string]$Action='Status',
     [long]$WindowHandle,
     [ValidateSet('Agent','Main')][string]$Destination='Agent',
     [string]$ExpectedDisplayId,
-    [string]$OutputPath
+    [string]$OutputPath,
+    [string]$ObservationId,
+    [int]$ElementId=-1,
+    [ValidateSet('Invoke','SetValue','Toggle','Select')][string]$Operation,
+    [AllowEmptyString()][string]$Value
 )
 $ErrorActionPreference='Stop'
 try {
@@ -20,10 +24,18 @@ try {
                 $screen=@{id=[SideScreen.Layout]::Id($agent);deviceName=$agent.GdiName;hardwareId=$agent.MonitorHardwareId;x=$agent.X;y=$agent.Y;width=$agent.Width;height=$agent.Height}
             }
             $physicalScreens=@($physical | ForEach-Object { @{id=[SideScreen.Layout]::Id($_);deviceName=$_.GdiName;x=$_.X;y=$_.Y;width=$_.Width;height=$_.Height} })
-            @{ok=$true;available=($virtual.Count -eq 1);agentScreen=$screen;physicalScreens=$physicalScreens;inputIsolation=$false;version='0.1.1'} | ConvertTo-Json -Depth 5
+            @{ok=$true;available=($virtual.Count -eq 1);agentScreen=$screen;physicalScreens=$physicalScreens;inputIsolation=$false;backgroundInput=@{backend='native-control-messages';operations=@('SetValue','Invoke','Toggle','Select');requiresInspection=$true;globalInputFallback=$false};version='0.2.0'} | ConvertTo-Json -Depth 5
         }
         'Windows' { @{ok=$true;scope='agent screen';windows=@([SideScreen.Windows]::ListOnAgentDisplay())} | ConvertTo-Json -Depth 6 }
         'Candidates' { @{ok=$true;scope='all visible windows';windows=@([SideScreen.Windows]::List())} | ConvertTo-Json -Depth 6 }
+        {$_ -eq 'Inspect' -or $_ -eq 'Act'} {
+            if(!$WindowHandle -or !$ExpectedDisplayId){throw 'Provide WindowHandle and ExpectedDisplayId from fresh Windows/Status results.'}
+            $parameters=@{Action=$Action;WindowHandle=$WindowHandle;ExpectedDisplayId=$ExpectedDisplayId;ObservationId=$ObservationId;ElementId=$ElementId}
+            if($Operation){$parameters.Operation=$Operation}
+            if($PSBoundParameters.ContainsKey('Value')){$parameters.Value=$Value}
+            & (Join-Path $PSScriptRoot 'background.ps1') @parameters
+            exit $LASTEXITCODE
+        }
         'Move' {
             if(!$WindowHandle){throw 'Provide -WindowHandle from a fresh Windows listing.'}
             if(!$ExpectedDisplayId){throw 'Provide -ExpectedDisplayId from a fresh Status result.'}

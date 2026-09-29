@@ -33,6 +33,10 @@ class Tests {
         var indirect=new DisplayAudit.Record{DevicePath="\\\\?\\DISPLAY#UNKNOWN#abc",Technology=17};
         identify.Invoke(null,new object[]{indirect,new DisplayAudit.TargetName()});
         Check(!indirect.IsUsableMainDisplay,"Unknown indirect display is not a physical recovery destination");
+        Check(BackgroundInput.Inside(new Rectangle(-1800,30,400,200),new Rectangle(-1920,0,1920,1080)),"Background control accepts full negative-origin containment");
+        Check(!BackgroundInput.Inside(new Rectangle(-100,30,400,200),new Rectangle(-1920,0,1920,1080)),"Background control rejects partial monitor overlap");
+        Check(!BackgroundInput.Inside(new Rectangle(0,0,0,0),new Rectangle(0,0,1920,1080)),"Background control rejects empty bounds");
+        Check(!BackgroundInput.Inside(new Rectangle(20,20,400,200),new Rectangle(-1920,0,1920,1080)),"Background control rejects human-screen bounds");
         if(args.Contains("--live-placement")) {
             using(var form=new PassiveForm{Text="SideScreen disposable placement test",Width=320,Height=100,ShowInTaskbar=false,StartPosition=FormStartPosition.Manual,Location=new Point(100,100)}) {
                 form.Show();Application.DoEvents();

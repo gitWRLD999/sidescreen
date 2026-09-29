@@ -5,7 +5,7 @@ $source=$PSScriptRoot
 $destination=Join-Path $env:LOCALAPPDATA 'SideScreenTools'
 $skillSource=Join-Path $source 'skills\sidescreen\SKILL.md'
 $skillDestination=Join-Path $env:USERPROFILE '.codex\skills\sidescreen'
-foreach($name in @('SideScreen.exe','SideScreen.Core.dll','agent.ps1','display.ps1')) {
+foreach($name in @('SideScreen.exe','SideScreen.Core.dll','SideScreen.Input.exe','agent.ps1','background.ps1','display.ps1')) {
     if(!(Test-Path -LiteralPath (Join-Path $source $name))) { throw "Missing $name; extract the complete release first." }
 }
 if(!(Test-Path -LiteralPath $skillSource)) { throw 'Missing skills\sidescreen\SKILL.md; extract the complete release first.' }
@@ -14,7 +14,7 @@ if(@(Get-Process -Name SideScreen -ErrorAction SilentlyContinue | Where-Object {
     throw 'Exit the running SideScreen tray app before installing this update.'
 }
 New-Item -ItemType Directory -Path $destination,$skillDestination -Force | Out-Null
-foreach($name in @('SideScreen.exe','SideScreen.Core.dll','agent.ps1','display.ps1','README.md','LICENSE')) {
+foreach($name in @('SideScreen.exe','SideScreen.Core.dll','SideScreen.Input.exe','agent.ps1','background.ps1','display.ps1','README.md','LICENSE')) {
     Copy-Item -LiteralPath (Join-Path $source $name) -Destination (Join-Path $destination $name) -Force
 }
 Copy-Item -LiteralPath $skillSource -Destination (Join-Path $skillDestination 'SKILL.md') -Force

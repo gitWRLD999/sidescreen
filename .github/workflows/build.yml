@@ -15,7 +15,7 @@ jobs:
       - name: Parse PowerShell scripts
         shell: powershell
         run: |
-          @(Get-ChildItem scripts -Filter *.ps1) + @(Get-Item build.ps1) | ForEach-Object {
+          @(Get-ChildItem scripts,tests -Filter *.ps1) + @(Get-Item build.ps1) | ForEach-Object {
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors)
             if ($errors.Count) { throw ($errors | Out-String) }

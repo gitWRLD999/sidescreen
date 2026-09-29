@@ -4,6 +4,8 @@ Reviewed September 28, 2026 using each project's own repository. Feature stateme
 
 | Project | Relevant approach | Relationship to SideScreen |
 | --- | --- | --- |
+| [MouseMux](https://www.mousemux.com/ai-agents/) | Per-window virtual users and local MCP input routing | Inspiration for scoped input; commercial runtime is not bundled or integrated |
+| [Microsoft winapp CLI](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md) | UIA discovery, control messages, explicit foreground-input modes | Informs capability limits and refusing global-input fallback |
 | [VirtualDrivers / Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) | Windows indirect display driver, configurable virtual monitors | Required external monitor provider; mature driver work is reused through installation, not reimplemented |
 | [Trope CUA](https://github.com/tropeai/trope-cua) | Windows/macOS agent tools that choose background routes where OS and app support them | Potential input companion; end-to-end integration has not been tested |
 | [Ghost](https://github.com/NORTHTEKDevs/ghost) | Background focus policy and operator-controlled focus lock; unsupported background actions fail | Useful example of refusing foreground fallback instead of claiming a monitor isolates input |
