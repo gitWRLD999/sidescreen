@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Status','Windows','Candidates','Move','Capture','Inspect','Act')][string]$Action='Status',
+    [ValidateSet('Status','Windows','Candidates','Move','Capture','Inspect','Act','CuaObserve','CuaAct')][string]$Action='Status',
     [long]$WindowHandle,
     [ValidateSet('Agent','Main')][string]$Destination='Agent',
     [string]$ExpectedDisplayId,
@@ -8,7 +8,10 @@ param(
     [string]$ObservationId,
     [int]$ElementId=-1,
     [ValidateSet('Invoke','SetValue','Toggle','Select')][string]$Operation,
-    [AllowEmptyString()][string]$Value
+    [AllowEmptyString()][string]$Value,
+    [ValidateSet('click','set_value','type_text','scroll','press_key','hotkey')][string]$Tool,
+    [string]$ArgumentsJson='{}',
+    [switch]$NoScreenshot
 )
 $ErrorActionPreference='Stop'
 try {
@@ -24,10 +27,17 @@ try {
                 $screen=@{id=[SideScreen.Layout]::Id($agent);deviceName=$agent.GdiName;hardwareId=$agent.MonitorHardwareId;x=$agent.X;y=$agent.Y;width=$agent.Width;height=$agent.Height}
             }
             $physicalScreens=@($physical | ForEach-Object { @{id=[SideScreen.Layout]::Id($_);deviceName=$_.GdiName;x=$_.X;y=$_.Y;width=$_.Width;height=$_.Height} })
-            @{ok=$true;available=($virtual.Count -eq 1);agentScreen=$screen;physicalScreens=$physicalScreens;inputIsolation=$false;backgroundInput=@{backend='native-control-messages';operations=@('SetValue','Invoke','Toggle','Select');requiresInspection=$true;globalInputFallback=$false};version='0.2.0'} | ConvertTo-Json -Depth 5
+            $cua=& (Join-Path $PSScriptRoot 'cua.ps1') -Action Status | ConvertFrom-Json
+            @{ok=$true;available=($virtual.Count -eq 1);agentScreen=$screen;physicalScreens=$physicalScreens;inputIsolation=$false;cua=$cua;backgroundInput=@{backend='native-control-messages';operations=@('SetValue','Invoke','Toggle','Select');requiresInspection=$true;globalInputFallback=$false};version='0.3.0'} | ConvertTo-Json -Depth 5
         }
         'Windows' { @{ok=$true;scope='agent screen';windows=@([SideScreen.Windows]::ListOnAgentDisplay())} | ConvertTo-Json -Depth 6 }
         'Candidates' { @{ok=$true;scope='all visible windows';windows=@([SideScreen.Windows]::List())} | ConvertTo-Json -Depth 6 }
+        {$_ -eq 'CuaObserve' -or $_ -eq 'CuaAct'} {
+            $parameters=@{Action=$Action;WindowHandle=$WindowHandle;ExpectedDisplayId=$ExpectedDisplayId;ObservationId=$ObservationId;ArgumentsJson=$ArgumentsJson;NoScreenshot=$NoScreenshot}
+            if($Tool){$parameters.Tool=$Tool}
+            & (Join-Path $PSScriptRoot 'cua.ps1') @parameters
+            exit $LASTEXITCODE
+        }
         {$_ -eq 'Inspect' -or $_ -eq 'Act'} {
             if(!$WindowHandle -or !$ExpectedDisplayId){throw 'Provide WindowHandle and ExpectedDisplayId from fresh Windows/Status results.'}
             $parameters=@{Action=$Action;WindowHandle=$WindowHandle;ExpectedDisplayId=$ExpectedDisplayId;ObservationId=$ObservationId;ElementId=$ElementId}

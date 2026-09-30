@@ -20,3 +20,5 @@ jobs:
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors)
             if ($errors.Count) { throw ($errors | Out-String) }
           }
+      - name: Verify Muse adapter
+        run: node tests/muse-adapter.mjs

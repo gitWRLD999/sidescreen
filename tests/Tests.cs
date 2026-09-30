@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Reflection;
@@ -37,6 +38,13 @@ class Tests {
         Check(!BackgroundInput.Inside(new Rectangle(-100,30,400,200),new Rectangle(-1920,0,1920,1080)),"Background control rejects partial monitor overlap");
         Check(!BackgroundInput.Inside(new Rectangle(0,0,0,0),new Rectangle(0,0,1920,1080)),"Background control rejects empty bounds");
         Check(!BackgroundInput.Inside(new Rectangle(20,20,400,200),new Rectangle(-1920,0,1920,1080)),"Background control rejects human-screen bounds");
+        Reject(()=>CuaBridge.ValidateArguments("click",new Dictionary<string,object>{{"delivery_mode","foreground"}}),"CUA refuses delivery override");
+        Reject(()=>CuaBridge.ValidateArguments("click",new Dictionary<string,object>{{"target",new object()}}),"CUA refuses target override");
+        Reject(()=>CuaBridge.ValidateArguments("bring_to_front",new Dictionary<string,object>()),"CUA refuses activation tools");
+        Reject(()=>CuaBridge.ValidateArguments("click",new Dictionary<string,object>{{"x",1}}),"CUA refuses incomplete coordinates");
+        Reject(()=>CuaBridge.ValidateArguments("type_text",new Dictionary<string,object>{{"text","hello"}}),"CUA refuses unbound typing");
+        Reject(()=>CuaBridge.ValidateArguments("click",new Dictionary<string,object>{{"element_token","token"},{"x",1},{"y",2}}),"CUA refuses mixed grounding");
+        Reject(()=>CuaBridge.ValidateArguments("set_value",new Dictionary<string,object>{{"element_token","token"},{"value","a\0b"}}),"CUA refuses NUL text");
         if(args.Contains("--live-placement")) {
             using(var form=new PassiveForm{Text="SideScreen disposable placement test",Width=320,Height=100,ShowInTaskbar=false,StartPosition=FormStartPosition.Manual,Location=new Point(100,100)}) {
                 form.Show();Application.DoEvents();

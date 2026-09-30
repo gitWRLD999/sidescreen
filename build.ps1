@@ -11,6 +11,8 @@ if($LASTEXITCODE -ne 0){throw 'Core build failed'}
 $wpf=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\WPF'
 & $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.Input.exe" "/r:$core" /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll "/r:$wpf\UIAutomationClient.dll" "/r:$wpf\UIAutomationTypes.dll" "/r:$wpf\WindowsBase.dll" (Join-Path $PSScriptRoot 'src\BackgroundInput.cs')
 if($LASTEXITCODE -ne 0){throw 'Background input build failed'}
+& $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.Cua.exe" "/r:$core" "/r:$output\SideScreen.Input.exe" /r:System.Drawing.dll /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'src\CuaBridge.cs')
+if($LASTEXITCODE -ne 0){throw 'CUA bridge build failed'}
 & $compiler /nologo /target:winexe /platform:x64 "/out:$output\SideScreen.exe" "/r:$core" /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Core.dll (Join-Path $PSScriptRoot 'src\AppPaths.cs') (Join-Path $PSScriptRoot 'src\Tray.cs') (Join-Path $PSScriptRoot 'src\Preview.cs')
 if($LASTEXITCODE -ne 0){throw 'App build failed'}
 Copy-Item -Path (Join-Path $PSScriptRoot 'scripts\*.ps1') -Destination $output -Force
@@ -21,8 +23,9 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'skills\sidescreen\SKILL.md') -D
 $docsOutput=Join-Path $output 'docs'
 New-Item -ItemType Directory -Path $docsOutput -Force | Out-Null
 Copy-Item -Path (Join-Path $PSScriptRoot 'docs\*.md') -Destination $docsOutput -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'integrations') -Destination $output -Recurse -Force
 if($Test){
-    & $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.Tests.exe" "/r:$core" "/r:$output\SideScreen.Input.exe" /r:System.Drawing.dll /r:System.Windows.Forms.dll (Join-Path $PSScriptRoot 'tests\Tests.cs')
+    & $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.Tests.exe" "/r:$core" "/r:$output\SideScreen.Input.exe" "/r:$output\SideScreen.Cua.exe" /r:System.Drawing.dll /r:System.Windows.Forms.dll (Join-Path $PSScriptRoot 'tests\Tests.cs')
     if($LASTEXITCODE -ne 0){throw 'Test build failed'}
     & "$output\SideScreen.Tests.exe"
     if($LASTEXITCODE -ne 0){throw 'Tests failed'}

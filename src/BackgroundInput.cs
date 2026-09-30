@@ -21,7 +21,8 @@ namespace SideScreen {
         public string RuntimeId, Name, AutomationId, ControlType, ClassName;
         public long NativeHandle;
         public string[] Actions;
-        public bool Enabled, Offscreen;
+        public bool Enabled, Offscreen, IsPassword, IsReadOnly;
+        public Rectangle Bounds;
     }
     public sealed class Observation {
         public string Id, DisplayId, RootRuntimeId;
@@ -127,7 +128,7 @@ namespace SideScreen {
         static IntPtr ListParent(AutomationElement element){var parent=TreeWalker.ControlViewWalker.GetParent(element);return parent==null?IntPtr.Zero:Native(parent);}
         static string Runtime(AutomationElement element){return String.Join(".",element.GetRuntimeId().Select(i=>i.ToString()).ToArray());}
         public static bool Inside(Rectangle window,Rectangle display) {return window.Width>0 && window.Height>0 && display.Contains(window);}
-        static WindowRecord Scope(long handle,string expected) {
+        public static WindowRecord Scope(long handle,string expected) {
             if(String.IsNullOrEmpty(expected))throw new InvalidOperationException("ExpectedDisplayId is required from fresh Status.");
             var displays=DisplayAudit.Read();var agent=Layout.Select(displays,true);
             if(Layout.Id(agent)!=expected)throw new InvalidOperationException("Agent display changed; query Status again.");
@@ -164,6 +165,10 @@ namespace SideScreen {
                 if((listStyle&0x808)==0 && ((listStyle&0x30)==0 || (listStyle&0x40)!=0))actions.Add("Select");
             }
             return actions.ToArray();
+        }
+        static bool ReadOnly(AutomationElement element) {
+            object pattern;
+            return element.TryGetCurrentPattern(ValuePattern.Pattern,out pattern) && ((ValuePattern)pattern).Current.IsReadOnly;
         }
         static string Apply(AutomationElement target,InputRequest request) {
             var handle=request.Operation=="Select"?ListParent(target):Native(target);
@@ -206,19 +211,20 @@ namespace SideScreen {
             Directory.CreateDirectory(State);
             foreach(var path in Directory.GetFiles(State,"*.json"))if(File.GetLastWriteTimeUtc(path)<DateTime.UtcNow.AddMinutes(-5))try{File.Delete(path);}catch(IOException){}
         }
-        static object Inspect(InputRequest request) {
+        public static object Inspect(InputRequest request) {
             var window=Scope(request.WindowHandle,request.ExpectedDisplayId);
             var root=AutomationElement.FromHandle(new IntPtr(window.Handle));
             var info=new List<ElementInfo>();
             foreach(var element in Walk(root)) {
                 var current=element.Current;
-                info.Add(new ElementInfo {Id=info.Count,RuntimeId=Runtime(element),Name=current.Name,AutomationId=current.AutomationId,ControlType=current.ControlType.ProgrammaticName,ClassName=current.ClassName,NativeHandle=current.NativeWindowHandle,Enabled=current.IsEnabled,Offscreen=current.IsOffscreen,Actions=Actions(element)});
+                var rect=current.BoundingRectangle;
+                info.Add(new ElementInfo {Id=info.Count,RuntimeId=Runtime(element),Name=current.Name,AutomationId=current.AutomationId,ControlType=current.ControlType.ProgrammaticName,ClassName=current.ClassName,NativeHandle=current.NativeWindowHandle,Enabled=current.IsEnabled,Offscreen=current.IsOffscreen,IsPassword=current.IsPassword,IsReadOnly=ReadOnly(element),Bounds=rect.IsEmpty?Rectangle.Empty:Rectangle.FromLTRB((int)Math.Floor(rect.Left),(int)Math.Floor(rect.Top),(int)Math.Ceiling(rect.Right),(int)Math.Ceiling(rect.Bottom)),Actions=Actions(element)});
             }
             var observation=new Observation {Id=Guid.NewGuid().ToString("N"),DisplayId=request.ExpectedDisplayId,WindowHandle=window.Handle,ProcessId=window.ProcessId,ProcessStartTicks=Process.GetProcessById((int)window.ProcessId).StartTime.ToUniversalTime().Ticks,RootRuntimeId=Runtime(root),ExpiresUtcTicks=DateTime.UtcNow.AddMinutes(2).Ticks,Elements=info.ToArray()};
             Cleanup();File.WriteAllText(Path.Combine(State,observation.Id+".json"),Json.Serialize(observation));
             return new {ok=true,backend="native-control-messages",observation=observation,truncated=info.Count>=512,expiresInSeconds=120};
         }
-        static object Act(InputRequest request) {
+        public static object Act(InputRequest request) {
             Guid parsed;
             if(!Guid.TryParseExact(request.ObservationId,"N",out parsed))throw new InvalidOperationException("Provide ObservationId from Inspect.");
             var path=Path.Combine(State,parsed.ToString("N")+".json");

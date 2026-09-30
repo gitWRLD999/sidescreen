@@ -1,10 +1,11 @@
 # Related projects
 
-Reviewed September 28, 2026 using each project's own repository. Feature statements below summarize their documentation, not independent compatibility tests.
+Reviewed September 28, 2026, with CUA updated September 30, using each project's own repository. Feature statements summarize their documentation except the explicitly stated SideScreen integration tests.
 
 | Project | Relevant approach | Relationship to SideScreen |
 | --- | --- | --- |
 | [MouseMux](https://www.mousemux.com/ai-agents/) | Per-window virtual users and local MCP input routing | Inspiration for scoped input; commercial runtime is not bundled or integrated |
+| [Cua Driver](https://github.com/trycua/cua/tree/main/libs/cua-driver) | Windows accessibility, pixel capture/input, background delivery with explicit refusal | SideScreen 0.3 has an optional scoped adapter and local native/WPF checks against CUA 0.31.0; external binaries remain separately installed |
 | [Microsoft winapp CLI](https://github.com/microsoft/winappCli/blob/main/docs/ui-automation.md) | UIA discovery, control messages, explicit foreground-input modes | Informs capability limits and refusing global-input fallback |
 | [VirtualDrivers / Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) | Windows indirect display driver, configurable virtual monitors | Required external monitor provider; mature driver work is reused through installation, not reimplemented |
 | [Trope CUA](https://github.com/tropeai/trope-cua) | Windows/macOS agent tools that choose background routes where OS and app support them | Potential input companion; end-to-end integration has not been tested |

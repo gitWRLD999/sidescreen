@@ -13,7 +13,7 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("SideScreen")]
 [assembly: AssemblyProduct("SideScreen")]
 [assembly: AssemblyDescription("On-demand virtual display tray control")]
-[assembly: AssemblyVersion("0.2.0.0")]
+[assembly: AssemblyVersion("0.3.0.0")]
 
 internal static class Program {
     internal static void Log(string message) {
@@ -28,7 +28,7 @@ internal static class Program {
         using(var mutex = new Mutex(true, "Local\\SideScreen.Tray", out first)) {
             using(var openSignal=new EventWaitHandle(false,EventResetMode.AutoReset,"Local\\SideScreen.Tray.Open")) {
                 if(!first) { openSignal.Set(); return; }
-                Log("Started version 0.2.0; process "+Process.GetCurrentProcess().Id);
+                Log("Started version 0.3.0; process "+Process.GetCurrentProcess().Id);
                 AppDomain.CurrentDomain.UnhandledException+=delegate(object sender,UnhandledExceptionEventArgs e) { Log("Unhandled exception: "+e.ExceptionObject); };
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
@@ -179,7 +179,7 @@ internal sealed class TrayApp : ApplicationContext {
             var id=(int)typeof(NotifyIcon).GetField("id",flags).GetValue(tray);
             var ident=new TrayIdentifier { Size=(uint)Marshal.SizeOf(typeof(TrayIdentifier)),Window=native.Handle,Id=(uint)id,Guid=Guid.Empty };
             TrayRect rect; int result=Shell_NotifyIconGetRect(ref ident,out rect);
-            WriteDiagnostic("Version=0.2.0\r\nState="+state+"\r\nMainAvailable="+mainAvailable+"\r\nIconVisible="+tray.Visible+"\r\nTooltip="+tray.Text+"\r\nRectResult="+result+"\r\nRect="+rect.Left+","+rect.Top+","+rect.Right+","+rect.Bottom+"\r\nPanelVisible="+(panel.IsHandleCreated&&IsWindowVisible(panel.Handle)));
+            WriteDiagnostic("Version=0.3.0\r\nState="+state+"\r\nMainAvailable="+mainAvailable+"\r\nIconVisible="+tray.Visible+"\r\nTooltip="+tray.Text+"\r\nRectResult="+result+"\r\nRect="+rect.Left+","+rect.Top+","+rect.Right+","+rect.Bottom+"\r\nPanelVisible="+(panel.IsHandleCreated&&IsWindowVisible(panel.Handle)));
         } catch(Exception ex) {
             WriteDiagnostic("State="+state+"\r\nDiagnosticError="+ex.Message);
         }
