@@ -9,13 +9,16 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Build pinned original native adapters
+        shell: powershell
+        run: .\native\prepare-native.ps1
       - name: Compile and test
         shell: powershell
         run: .\build.ps1 -Test
       - name: Parse PowerShell scripts
         shell: powershell
         run: |
-          @(Get-ChildItem scripts,tests -Filter *.ps1) + @(Get-Item build.ps1) | ForEach-Object {
+          @(Get-ChildItem scripts,tests,native -Filter *.ps1) + @(Get-Item build.ps1) | ForEach-Object {
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors)
             if ($errors.Count) { throw ($errors | Out-String) }

@@ -28,7 +28,7 @@ try {
             }
             $physicalScreens=@($physical | ForEach-Object { @{id=[SideScreen.Layout]::Id($_);deviceName=$_.GdiName;x=$_.X;y=$_.Y;width=$_.Width;height=$_.Height} })
             $cua=& (Join-Path $PSScriptRoot 'cua.ps1') -Action Status | ConvertFrom-Json
-            @{ok=$true;available=$cua.available;agentScreen=$screen;physicalScreens=$physicalScreens;inputIsolation=$false;cua=$cua;backgroundInput=@{backend='native-control-messages';operations=@('SetValue','Invoke','Toggle','Select');requiresInspection=$true;globalInputFallback=$false};version='0.4.0'} | ConvertTo-Json -Depth 5
+            @{ok=$true;available=$cua.available;agentScreen=$screen;physicalScreens=$physicalScreens;inputIsolation=$false;cua=$cua;backgroundInput=@{backend='native-control-messages';operations=@('SetValue','Invoke','Toggle','Select');requiresInspection=$true;globalInputFallback=$false};version='0.6.0'} | ConvertTo-Json -Depth 5
         }
         'Windows' { @{ok=$true;scope='agent screen';windows=@([SideScreen.Windows]::ListOnAgentDisplay())} | ConvertTo-Json -Depth 6 }
         'Candidates' { @{ok=$true;scope='all visible windows';windows=@([SideScreen.Windows]::List())} | ConvertTo-Json -Depth 6 }

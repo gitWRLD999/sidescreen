@@ -1,5 +1,37 @@
 # Release validation
 
+Version 0.6 adds the original x64/x86 user-mode virtual-input adapter. It passed
+118 live checks against disposable 64-bit and 32-bit WinForms windows: standard
+button effects and virtual cursor queries, Unicode insertion, Ctrl+A selection
+and replacement, separate modifier state, virtual mouse capture and drag,
+vertical/horizontal wheel input, double-clicks, activation/cursor suppression,
+one-use observations, password/read-only refusal and out-of-bounds gestures.
+The 26 non-UI checks, 12 adapter checks, 37 native background checks and 61
+CUA native/WPF checks also passed.
+
+The installed Muse Link 1.3 proxy passed 31 two-client checks for window leases,
+cross-client refusal through legacy SideScreen/assistance tools, actual app
+handlers, physical cursor/focus preservation, private Unicode paste, named
+keyboard macros, replay protection, release/reassignment and both labeled
+cursors rendered by the production preview. In one local run, act-and-observe
+had a 1.25-second median and two-step keyboard macros completed in 3.2–3.8
+seconds, excluding remote network/model time. These are measured tool times,
+not universal app benchmarks. Original native adapter code is MIT; bundled
+MinHook retains BSD-2-Clause.
+
+A read-only check also invoked the production human-cursor renderer while the
+actual visible Windows pointer was on SideScreen. It drew 96 non-background
+pixels without moving the pointer. This checks rendering at the current layout;
+other display scales and physical mouse movement were not independently tested.
+
+The adapter is conditional user-mode API virtualization, not a separate Windows
+input session or security sandbox. Raw/direct input, asynchronous app behavior,
+custom input threads, protected/elevated apps and arbitrary third-party
+compatibility were not certified. Regular Chrome keeps the existing DOM route;
+no native adapter is injected into it. Cold extension attachment can still
+change focus and is monitored separately. Startup configuration is retained;
+a reboot, remote Muse host and built-in hosted ChatGPT backend were not tested.
+
 Version 0.5 was built October 3, 2026 with CUA Driver 0.31.0. The non-UI suite
 passed 26 checks, the Muse adapter passed 12, and the CUA suite passed 61 live
 checks. The installed Muse Link proxy passed 42 additional end-to-end checks:

@@ -12,8 +12,10 @@ using System.Web.Script.Serialization;
 
 namespace SideScreen {
     public sealed class CuaRequest {
-        public string Action, ExpectedDisplayId, ObservationId, Tool;
+        public string Action, ExpectedDisplayId, ObservationId, Tool, CursorId, CursorLabel;
         public long WindowHandle;
+        public uint ExpectedProcessId;
+        public string ExpectedProcessStartTicks;
         public bool IncludeScreenshot=true;
         public bool IncludeAccessibilityTree=true;
         public int MaxElements=256, MaxDepth=20, MaxImageDimension=1280;
@@ -111,7 +113,7 @@ namespace SideScreen {
         }
         static Dictionary<string,object> Target(CuaObservation observation) {return new Dictionary<string,object>{{"pid",observation.ProcessId},{"window_id",observation.WindowHandle},{"session","sidescreen-"+observation.Id}};}
         static string[] Strings(object value) {var items=value as IEnumerable;return items==null?new string[0]:items.Cast<object>().Select(Convert.ToString).ToArray();}
-        static ElementInfo NativeMatch(Dictionary<string,object> element,ElementInfo[] native) {
+        internal static ElementInfo NativeMatch(Dictionary<string,object> element,ElementInfo[] native) {
             string role=Text(element,"role"),name=Text(element,"label");
             var frame=element.ContainsKey("frame")?Object(element["frame"]):null;
             if(frame!=null) {
@@ -197,6 +199,10 @@ namespace SideScreen {
             if(observation.ExpiresUtcTicks<DateTime.UtcNow.Ticks || observation.DisplayId!=request.ExpectedDisplayId || observation.WindowHandle!=request.WindowHandle)throw new InvalidOperationException("Expired or mismatched observation.");
             var window=BackgroundInput.Scope(request.WindowHandle,request.ExpectedDisplayId);
             if(window.ProcessId!=observation.ProcessId || Process.GetProcessById((int)window.ProcessId).StartTime.ToUniversalTime().Ticks!=observation.ProcessStartTicks || window.Bounds!=observation.Bounds)throw new InvalidOperationException("Window process/geometry changed; observe again.");
+            if(request.Action=="VirtualAct") {
+                Guid cursor;if(!Guid.TryParseExact(request.CursorId,"N",out cursor)||String.IsNullOrEmpty(request.CursorLabel)||request.CursorLabel.Length>64)throw new InvalidOperationException("Provide a scoped cursor ID and label.");
+                return VirtualInput.Act(observation,window,request.Tool,request.Arguments??new Dictionary<string,object>(),request.CursorId,request.CursorLabel);
+            }
             if(request.Action=="SideCursorAct") {
                 var p=request.Arguments??new Dictionary<string,object>();
                 if(p.Keys.Any(k=>!new[]{"x","y","button"}.Contains(k)) || !p.ContainsKey("x") || !p.ContainsKey("y") || (request.Tool!="move" && request.Tool!="click"))throw new InvalidOperationException("Invalid scoped pointer request.");
@@ -257,6 +263,14 @@ namespace SideScreen {
             return new {ok=ok,stop=!ok,dispatched=dispatched,backend="cua-driver",deliveryMode="background",universalIsolation=false,driver=result,focus=focus,error=error??(!focus.Preserved?"Foreground or keyboard focus changed; stop and observe.":null)};
         }
         public static object Execute(CuaRequest request) {
+            if(request.Action=="VirtualRelease") {
+                var w=BackgroundInput.Scope(request.WindowHandle,request.ExpectedDisplayId);
+                if(w.ProcessId!=request.ExpectedProcessId||Process.GetProcessById((int)w.ProcessId).StartTime.ToUniversalTime().Ticks.ToString()!=request.ExpectedProcessStartTicks)throw new InvalidOperationException("Release process identity changed.");
+                Guid cursor=Guid.Empty;if(request.CursorId!=null&&!Guid.TryParseExact(request.CursorId,"N",out cursor))throw new InvalidOperationException("Invalid released cursor ID.");
+                var receipt=VirtualInput.Release(w);
+                if(request.CursorId!=null){string marker=Path.Combine(Path.GetDirectoryName(State),"agent-cursors",cursor.ToString("N")+".json");if(File.Exists(marker))File.Delete(marker);}
+                return receipt;
+            }
             if(request.Action=="Scope") {
                 var w=BackgroundInput.Scope(request.WindowHandle,request.ExpectedDisplayId);
                 return new {ok=true,windowHandle=w.Handle,processId=w.ProcessId,processStartTicks=Process.GetProcessById((int)w.ProcessId).StartTime.ToUniversalTime().Ticks.ToString(),bounds=w.Bounds,displayId=request.ExpectedDisplayId};
@@ -275,12 +289,13 @@ namespace SideScreen {
                 if(virtualDisplays.Length==1){var d=virtualDisplays[0];screen=new {id=Layout.Id(d),deviceName=d.GdiName,x=d.X,y=d.Y,width=d.Width,height=d.Height};}
                 bool ready=false;string healthError=null;
                 if(File.Exists(Binary)){try{var probe=Driver("list_windows",new Dictionary<string,object>{{"pid",Process.GetCurrentProcess().Id}},5000);ready=!Failed(probe);if(!ready)healthError="CUA refused readiness probe";}catch(Exception e){healthError=e.Message;}}
-                return new {ok=true,available=safeLayout,nonOverlapping=safeLayout,agentScreen=screen,installed=File.Exists(Binary),ready=ready,healthError=healthError,binary=Binary,socket=Socket,inputIsolation=false,deliveryMode="background",tools=new[]{"click","set_value","type_text","scroll","press_key","hotkey"},version="0.5.0"};
+                return new {ok=true,available=safeLayout,nonOverlapping=safeLayout,agentScreen=screen,installed=File.Exists(Binary),ready=ready,healthError=healthError,binary=Binary,socket=Socket,inputIsolation=false,virtualInputInstalled=VirtualInput.Installed,deliveryMode="background",tools=new[]{"click","set_value","type_text","scroll","press_key","hotkey"},version="0.6.0"};
             }
             if(request.Action=="Windows")return new {ok=true,windows=Windows.ListOnAgentDisplay()};
             if(request.Action=="CuaObserve")return Observe(request);
             if(request.Action=="CuaAct")return Act(request);
             if(request.Action=="SideCursorAct")return Act(request);
+            if(request.Action=="VirtualAct")return Act(request);
             throw new InvalidOperationException("Unknown SideScreen CUA action.");
         }
         static object ExecuteLocked(CuaRequest request) {
@@ -291,7 +306,7 @@ namespace SideScreen {
                     if(!held)throw new InvalidOperationException("Another SideScreen action is running.");
                     try{return Execute(request);}finally {
                         Guid id;
-                        if(request!=null && (request.Action=="CuaAct" || request.Action=="SideCursorAct") && Guid.TryParseExact(request.ObservationId,"N",out id)) {
+                        if(request!=null && (request.Action=="CuaAct" || request.Action=="SideCursorAct" || request.Action=="VirtualAct") && Guid.TryParseExact(request.ObservationId,"N",out id)) {
                             try{Driver("end_session",new Dictionary<string,object>{{"session","sidescreen-"+id.ToString("N")}},1500);}catch{}
                         }
                     }
@@ -313,7 +328,7 @@ namespace SideScreen {
                 }
                 string output=Json.Serialize(ExecuteLocked(Json.Deserialize<CuaRequest>(Console.In.ReadToEnd())));Console.WriteLine(output);
                 return Convert.ToBoolean(Json.Deserialize<Dictionary<string,object>>(output)["ok"])?0:1;
-            }catch(Exception ex){Console.WriteLine(Json.Serialize(new {ok=false,stop=true,error=ex.Message}));return 1;}finally{foreach(var guard in guards.Values)guard.Dispose();CloseDriver();}
+            }catch(Exception ex){Console.WriteLine(Json.Serialize(new {ok=false,stop=true,error=ex.Message}));return 1;}finally{foreach(var guard in guards.Values)guard.Dispose();VirtualInput.Close();CloseDriver();}
         }
     }
 }

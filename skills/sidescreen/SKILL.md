@@ -5,6 +5,16 @@ description: Discover the SideScreen virtual Windows monitor and use scoped back
 
 # SideScreen
 
+Muse Link 1.3 exposes seven `sideuser_*` tools for per-agent window leases,
+labeled cursors, private text clipboard and named macros. Read
+`docs/sideusers.md` beside the installed tool before use. Discover current
+display/windows, open a session, observe, act once and verify the returned
+state. Only this MCP connection owns its session. Native x64/x86 virtual input
+supports bounded drag, wheel, double-click and native Edit keyboard events;
+use semantic `set_value`/`invoke` for other supported controls and regular Chrome
+DOM for websites. Input remains serialized, and universal compatibility is not
+established. Close sessions when finished. Unknown outcomes stop without replay.
+
 Muse Link 1.2 optionally adds `winapp_inspect`/`winapp_find` for read-only UI search, exact-window UFO Word/Excel-compatible app APIs, local CPU `omniparser_observe`, and free `sidecursor_move`/`sidecursor_click`. Prefer regular Chrome DOM and semantic input for speed. Read `docs/sidecursor.md` before pointer use: it requires a fresh screenshot plus accessibility tree and corroborated capture transform, consumes one observation, and verifies focus. It cannot provide universal isolation. The preview's blue Agent marker is independent of the human cursor. `mousemux_status` only probes vendor connectivity; it does not enable unverified vendor actions.
 
 Use the installed SideScreen `agent.ps1` script. Locate it from `SIDESCREEN_HOME` when set, then `%USERPROFILE%\AgentTools\SideScreen\agent.ps1`, then the legacy `%LOCALAPPDATA%\SideScreenTools\agent.ps1`. The shared user path avoids packaged AppData redirection differences.

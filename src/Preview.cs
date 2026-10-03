@@ -189,22 +189,28 @@ internal sealed class VirtualScreenViewer : Form {
             try{DrawIconEx(dc,cursor.Position.X-area.X-icon.XHotspot,cursor.Position.Y-area.Y-icon.YHotspot,copy,0,0,0,IntPtr.Zero,3);}finally{graphics.ReleaseHdc(dc);}
         }finally {if(icon.Mask!=IntPtr.Zero)DeleteObject(icon.Mask);if(icon.Color!=IntPtr.Zero)DeleteObject(icon.Color);DestroyIcon(copy);}
     }
-    sealed class AgentPointer {public int x{get;set;}public int y{get;set;}public long windowHandle{get;set;}public string displayId{get;set;}public string expiresUtc{get;set;}}
+    sealed class AgentPointer {public int x{get;set;}public int y{get;set;}public long windowHandle{get;set;}public string label{get;set;}public uint processId{get;set;}public string processStartTicks{get;set;}public string displayId{get;set;}public string expiresUtc{get;set;}}
     static void DrawAgentCursor(Graphics graphics,Rectangle area) {
+        string directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),"AgentTools","SideScreen","state");
+        var files=new List<string>{Path.Combine(directory,"agent-cursor.json")};string users=Path.Combine(directory,"agent-cursors");
+        if(Directory.Exists(users))files.AddRange(Directory.GetFiles(users,"*.json").OrderByDescending(File.GetLastWriteTimeUtc).Take(32));
+        foreach(string file in files)DrawAgentMarker(graphics,area,file);
+    }
+    static void DrawAgentMarker(Graphics graphics,Rectangle area,string file) {
         try {
-            string file=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),"AgentTools","SideScreen","state","agent-cursor.json");
             if(!File.Exists(file))return;
             var p=new JavaScriptSerializer().Deserialize<AgentPointer>(File.ReadAllText(file));
             var display=DisplayAudit.Read().SingleOrDefault(d=>d.IsVirtualMonitor);
             if(p==null||display==null||p.displayId!=SideScreen.Layout.Id(display)||DateTime.Parse(p.expiresUtc).ToUniversalTime()<DateTime.UtcNow||!area.Contains(p.x,p.y))return;
             var window=SideScreen.Windows.List().SingleOrDefault(w=>w.Handle==p.windowHandle);
             if(window==null||!window.Bounds.Contains(p.x,p.y)||!area.Contains(window.Bounds))return;
+            if(p.processId!=0&&(window.ProcessId!=p.processId||Process.GetProcessById((int)p.processId).StartTime.ToUniversalTime().Ticks.ToString()!=p.processStartTicks))return;
             int x=p.x-area.X,y=p.y-area.Y;
             using(var pen=new Pen(Color.DeepSkyBlue,3)) {
                 graphics.DrawEllipse(pen,x-7,y-7,14,14);
                 graphics.DrawLine(pen,x-12,y,x+12,y);graphics.DrawLine(pen,x,y-12,x,y+12);
             }
-            using(var font=new Font("Segoe UI",9,FontStyle.Bold))graphics.DrawString("Agent",font,Brushes.DeepSkyBlue,x+12,y+8);
+            using(var font=new Font("Segoe UI",9,FontStyle.Bold))graphics.DrawString(p.label??"Agent",font,Brushes.DeepSkyBlue,x+12,y+8);
         }catch { /* Expired/partially written markers must not interrupt preview. */ }
     }
     readonly PreviewSurface surface;

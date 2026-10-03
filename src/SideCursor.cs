@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Web.Script.Serialization;
 
@@ -32,10 +33,18 @@ namespace SideScreen {
             return p;
         }
         public static void Mark(CuaObservation observation,int sx,int sy) {
+            Mark(observation,sx,sy,null,"Agent");
+        }
+        public static void Mark(CuaObservation observation,int sx,int sy,string cursorId,string label) {
             var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),"AgentTools","SideScreen","state");
+            Guid id;
+            if(cursorId!=null){if(!Guid.TryParseExact(cursorId,"N",out id))throw new InvalidOperationException("Invalid cursor ID.");directory=Path.Combine(directory,"agent-cursors");}
             Directory.CreateDirectory(directory);
-            var marker=new JavaScriptSerializer().Serialize(new {x=sx,y=sy,displayId=observation.DisplayId,windowHandle=observation.WindowHandle,expiresUtc=DateTime.UtcNow.AddSeconds(120).ToString("o")});
-            File.WriteAllText(Path.Combine(directory,"agent-cursor.json"),marker);
+            if(cursorId!=null)foreach(string old in Directory.GetFiles(directory,"*.json").Take(256)) {
+                Guid previous;if(Guid.TryParseExact(Path.GetFileNameWithoutExtension(old),"N",out previous)&&File.GetLastWriteTimeUtc(old)<DateTime.UtcNow.AddMinutes(-5))try{File.Delete(old);}catch{}
+            }
+            var marker=new JavaScriptSerializer().Serialize(new {x=sx,y=sy,label=label??"Agent",displayId=observation.DisplayId,windowHandle=observation.WindowHandle,processId=observation.ProcessId,processStartTicks=observation.ProcessStartTicks.ToString(),expiresUtc=DateTime.UtcNow.AddSeconds(120).ToString("o")});
+            File.WriteAllText(Path.Combine(directory,cursorId==null?"agent-cursor.json":cursorId+".json"),marker);
         }
         public static object Dispatch(CuaObservation observation,WindowRecord window,double x,double y,bool click,string button) {
             var location=ResolvePoint(observation,window,x,y);

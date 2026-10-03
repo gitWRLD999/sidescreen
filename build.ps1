@@ -11,8 +11,10 @@ if($LASTEXITCODE -ne 0){throw 'Core build failed'}
 $wpf=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\WPF'
 & $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.Input.exe" "/r:$core" /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll "/r:$wpf\UIAutomationClient.dll" "/r:$wpf\UIAutomationTypes.dll" "/r:$wpf\WindowsBase.dll" (Join-Path $PSScriptRoot 'src\BackgroundInput.cs')
 if($LASTEXITCODE -ne 0){throw 'Background input build failed'}
-& $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.Cua.exe" "/r:$core" "/r:$output\SideScreen.Input.exe" /r:System.Drawing.dll /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'src\CuaBridge.cs') (Join-Path $PSScriptRoot 'src\SideCursor.cs')
+& $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.Cua.exe" "/r:$core" "/r:$output\SideScreen.Input.exe" /r:System.Drawing.dll /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'src\CuaBridge.cs') (Join-Path $PSScriptRoot 'src\SideCursor.cs') (Join-Path $PSScriptRoot 'src\NativeWire.cs') (Join-Path $PSScriptRoot 'src\VirtualInput.cs')
 if($LASTEXITCODE -ne 0){throw 'CUA bridge build failed'}
+& $compiler /nologo /target:exe /platform:x86 /define:NATIVE_HOST "/out:$output\SideScreen.Virtual32Host.exe" /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'src\NativeWire.cs')
+if($LASTEXITCODE -ne 0){throw '32-bit virtual input host build failed'}
 & $compiler /nologo /target:winexe /platform:x64 "/out:$output\SideScreen.exe" "/r:$core" /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Core.dll /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'src\AppPaths.cs') (Join-Path $PSScriptRoot 'src\Tray.cs') (Join-Path $PSScriptRoot 'src\Preview.cs')
 if($LASTEXITCODE -ne 0){throw 'App build failed'}
 Copy-Item -Path (Join-Path $PSScriptRoot 'scripts\*.ps1') -Destination $output -Force
@@ -27,6 +29,10 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'integrations') -Destination $ou
 if($Test){
     & $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.PreviewMarkerProbe.exe" "/r:$core" /r:System.Drawing.dll (Join-Path $PSScriptRoot 'tests\PreviewMarkerProbe.cs')
     if($LASTEXITCODE -ne 0){throw 'Preview probe build failed'}
+    & $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.PreviewUsersProbe.exe" "/r:$core" /r:System.Drawing.dll /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'tests\PreviewUsersProbe.cs')
+    if($LASTEXITCODE -ne 0){throw 'Multiple cursor preview probe build failed'}
+    & $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.PreviewHumanProbe.exe" "/r:$core" /r:System.Drawing.dll (Join-Path $PSScriptRoot 'tests\PreviewHumanProbe.cs')
+    if($LASTEXITCODE -ne 0){throw 'Human cursor preview probe build failed'}
     & $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.Tests.exe" "/r:$core" "/r:$output\SideScreen.Input.exe" "/r:$output\SideScreen.Cua.exe" /r:System.Drawing.dll /r:System.Windows.Forms.dll (Join-Path $PSScriptRoot 'tests\Tests.cs')
     if($LASTEXITCODE -ne 0){throw 'Test build failed'}
     & "$output\SideScreen.Tests.exe"

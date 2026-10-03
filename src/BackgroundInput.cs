@@ -35,6 +35,7 @@ namespace SideScreen {
         public int ForegroundChanges;
         public bool TargetActivated;
         public long ForegroundHandle;
+        public int CursorStartX,CursorStartY,CursorEndX,CursorEndY;
         public bool Preserved { get { return ForegroundPreserved && KeyboardFocusPreserved; } }
     }
     // This observes interference; it never tries to restore focus or move the pointer.
@@ -48,6 +49,7 @@ namespace SideScreen {
         delegate void WinEvent(IntPtr hook,uint evt,IntPtr hwnd,int obj,int child,uint thread,uint time);
         [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] static extern bool GetCursorPos(out Point p);
+        [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
         [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd,out uint pid);
         [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread,ref GuiInfo info);
         [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min,uint max,IntPtr module,WinEvent callback,uint process,uint thread,uint flags);
@@ -72,12 +74,14 @@ namespace SideScreen {
                     if(window.ToInt64()==target)receipt.TargetActivated=true;
                 };
                 try {
+                    SetThreadDpiAwarenessContext(new IntPtr(-4));
                     foreground=GetForegroundWindow();
                     receipt.ForegroundHandle=foreground.ToInt64();
                     if(foreground==IntPtr.Zero || foreground.ToInt64()==target)throw new InvalidOperationException("Background input requires another foreground window on an unlocked desktop.");
                     uint pid;foregroundThread=GetWindowThreadProcessId(foreground,out pid);
                     keyboard=Focus(foregroundThread);
                     if(!GetCursorPos(out cursor))throw new InvalidOperationException("Cannot observe the pointer.");
+                    receipt.CursorStartX=receipt.CursorEndX=cursor.X;receipt.CursorStartY=receipt.CursorEndY=cursor.Y;
                     observerId=GetCurrentThreadId();
                     hook=SetWinEventHook(3,3,IntPtr.Zero,callback,0,0,0);
                     if(hook==IntPtr.Zero)throw new InvalidOperationException("Cannot monitor foreground events.");
@@ -96,7 +100,7 @@ namespace SideScreen {
             try {
                 if(GetForegroundWindow()!=foreground)receipt.ForegroundPreserved=false;
                 if(Focus(foregroundThread)!=keyboard)receipt.KeyboardFocusPreserved=false;
-                Point current;if(!GetCursorPos(out current)||current.X!=cursor.X||current.Y!=cursor.Y)receipt.CursorPreserved=false;
+                Point current;if(!GetCursorPos(out current)||current.X!=cursor.X||current.Y!=cursor.Y)receipt.CursorPreserved=false;receipt.CursorEndX=current.X;receipt.CursorEndY=current.Y;
             } catch {receipt.KeyboardFocusPreserved=false;}
         }
         public bool Quiet {get {Sample();return receipt.Preserved;}}
