@@ -51,7 +51,13 @@ static int locked(HWND window){
     HWND top=GetAncestor(window,GA_ROOTOWNER);
     int found=0;ULONGLONG now=GetTickCount64();
     AcquireSRWLockShared(&roots_lock);
-    for(int n=0;n<MAX_ROOTS;n++)if(roots[n].root&&roots[n].expires>now&&(window==roots[n].root||top==roots[n].root||IsChild(roots[n].root,window))){found=1;break;}
+    for(int n=0;n<MAX_ROOTS;n++)if(roots[n].root&&roots[n].expires>now&&(window==roots[n].root||top==roots[n].root||IsChild(roots[n].root,window))){
+#ifdef SIDESCREEN_FOCUS_ONLY
+        /* A person explicitly foregrounding this root regains ordinary focus.
+           Other Chrome roots and the physical input APIs always pass through. */
+        HWND fg=GetForegroundWindow();if(fg==roots[n].root||IsChild(roots[n].root,fg))continue;
+#endif
+        found=1;break;}
     ReleaseSRWLockShared(&roots_lock);return found;
 }
 static BOOL WINAPI cursor(LPPOINT p){Context*c=current();if(!c)return real_cursor(p);if(!p)return FALSE;p->x=c->frame->x;p->y=c->frame->y;return TRUE;}
@@ -89,12 +95,18 @@ static int initialize(void){
     int result=0;
     /* Pin the module before any trampoline can refer to it after unhook. */
     HMODULE pinned;if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,(LPCWSTR)&initialize,&pinned)){InterlockedExchange(&initialized,-1);return -6;}
+#ifdef SIDESCREEN_FOCUS_ONLY
+    real_focus=GetFocus;real_active=GetActiveWindow;real_foreground=GetForegroundWindow;
+#else
     HOOK("GetCursorPos",cursor,real_cursor);HOOK("GetMessagePos",message_pos,real_message_pos);
     HOOK("GetKeyState",key,real_key);HOOK("GetAsyncKeyState",async_key,real_async_key);HOOK("GetKeyboardState",keyboard,real_keyboard);
     HOOK("GetFocus",focus,real_focus);HOOK("GetForegroundWindow",foreground,real_foreground);HOOK("GetActiveWindow",active,real_active);HOOK("GetCapture",capture,real_capture);
+#endif
     HOOK("SetFocus",set_focus,real_set_focus);HOOK("SetActiveWindow",set_active,real_set_active);HOOK("SetForegroundWindow",foreground_set,real_foreground_set);
+#ifndef SIDESCREEN_FOCUS_ONLY
     HOOK("SetCapture",set_capture,real_set_capture);HOOK("ReleaseCapture",release,real_release);HOOK("SetCursorPos",cursor_set,real_cursor_set);
     HOOK("WindowFromPoint",window_point,real_window_point);HOOK("GetGUIThreadInfo",gui_info,real_gui_info);HOOK("TrackMouseEvent",track,real_track);
+#endif
     HOOK("ShowWindow",show,real_show);HOOK("SetWindowPos",position,real_position);
     status=MH_EnableHook(MH_ALL_HOOKS);result=status==MH_OK?0:-(100+(int)status);
     InterlockedExchange(&initialized,result==0?2:-1);return result;
@@ -119,6 +131,9 @@ __declspec(dllexport) LRESULT CALLBACK SideInputHook(int code,WPARAM w,LPARAM l)
                             int ready=initialize();
                             if(ready<0)s->status=ready;
                             else if(f->operation==2){root_for(c->hwnd,1);s->status=ACK_OK;}
+#ifdef SIDESCREEN_FOCUS_ONLY
+                            else if(f->operation==3){s->status=root_for(c->hwnd,0)?ACK_OK:-4;}
+#else
                             else if(f->operation==1&&!current()){
                                 Root*r=root_for(c->hwnd,0);
                                 if(!r)s->status=-4;
@@ -127,7 +142,9 @@ __declspec(dllexport) LRESULT CALLBACK SideInputHook(int code,WPARAM w,LPARAM l)
                                     s->result=(uint64_t)SendMessageW((HWND)(UINT_PTR)f->target,f->message,(WPARAM)f->wparam,(LPARAM)f->lparam);
                                     s->blocked=context.blocked;TlsSetValue(tls,NULL);s->status=ACK_OK;
                                 }
-                            }else s->status=-5;
+                            }
+#endif
+                            else s->status=-5;
                         }
                         if(s)UnmapViewOfFile(s);CloseHandle(mapping);
                     }
@@ -142,10 +159,17 @@ __declspec(dllexport) int WINAPI SideInputDispatch(Frame*f,LONG*blocked){
     HWND root=(HWND)(UINT_PTR)f->root,target=(HWND)(UINT_PTR)f->target;DWORD pid=0;
     DWORD thread=GetWindowThreadProcessId(root,&pid);
     if(!thread||pid==GetCurrentProcessId()||!owned(root,target)||GetWindowThreadProcessId(target,NULL)!=thread)return -11;
+#ifdef SIDESCREEN_FOCUS_ONLY
+    if(f->operation!=3&&f->operation!=2)return -16;
+    if(root!=target)return -19;
+#else
     if(f->operation!=1&&f->operation!=2)return -16;
     if(f->operation==1&&f->message!=WM_MOUSEMOVE&&f->message!=WM_LBUTTONDOWN&&f->message!=WM_LBUTTONUP&&f->message!=WM_LBUTTONDBLCLK&&f->message!=WM_RBUTTONDOWN&&f->message!=WM_RBUTTONUP&&f->message!=WM_RBUTTONDBLCLK&&f->message!=WM_MBUTTONDOWN&&f->message!=WM_MBUTTONUP&&f->message!=WM_MBUTTONDBLCLK&&f->message!=WM_MOUSEWHEEL&&f->message!=WM_MOUSEHWHEEL&&f->message!=WM_KEYDOWN&&f->message!=WM_KEYUP&&f->message!=WM_CHAR&&f->message!=EM_SETSEL)return -17;
+#endif
     int n;for(n=0;n<MAX_ROOTS;n++)if(installed[n].thread==thread&&installed[n].pid==pid&&installed[n].hook)break;
+#ifndef SIDESCREEN_FOCUS_ONLY
     if(n==MAX_ROOTS&&f->operation==2){if(blocked)*blocked=0;return ACK_OK;}
+#endif
     if(n==MAX_ROOTS){for(n=0;n<MAX_ROOTS;n++)if(!installed[n].hook)break;if(n==MAX_ROOTS)return -12;
         installed[n].hook=SetWindowsHookExW(WH_CALLWNDPROC,SideInputHook,module,thread);if(!installed[n].hook)return -(1000+(int)GetLastError());installed[n].thread=thread;installed[n].pid=pid;
     }

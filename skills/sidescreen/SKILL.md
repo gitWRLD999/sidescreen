@@ -5,6 +5,17 @@ description: Discover the SideScreen virtual Windows monitor and use scoped back
 
 # SideScreen
 
+Muse Link 1.4 adds `chrome_desktop_observe` / `chrome_desktop_act` for the small
+Chrome account chooser and other supported native browser controls. These
+discover the exact owned Chrome window in the pinned regular profile and use
+CUA with the separate activation-only guard; do not use SideUser's keyboard/
+pointer DLL on an account browser. Webpage pixels use `chrome_visual_observe`
+/ `chrome_visual_act`, while DOM `act` / `steps` remain the fast route for
+webpage controls. Read Muse Link's `docs/chrome-desktop.md` and SideScreen's
+`docs/chrome-focus.md`. Select only the authorized identity; password, MFA,
+passkey and security barriers require human completion. Verify fresh images
+and resulting state, and never replay an unknown action or restore focus.
+
 Muse Link 1.3 exposes seven `sideuser_*` tools for per-agent window leases,
 labeled cursors, private text clipboard and named macros. Read
 `docs/sideusers.md` beside the installed tool before use. Discover current

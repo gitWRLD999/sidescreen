@@ -12,6 +12,9 @@ foreach($arch in @('x86_64','x86')) {
     $name=if($arch -eq 'x86_64'){'SideScreen.VirtualInput.dll'}else{'SideScreen.VirtualInput32.dll'}
     & $ZigExecutable cc -target "$arch-windows-gnu" -O2 -shared -DUNICODE -D_UNICODE -I (Join-Path $minhook 'include') @sources (Join-Path $minhook ('src\hde\'+$hde)) -luser32 -lkernel32 -lole32 -o (Join-Path $output $name)
     if($LASTEXITCODE -ne 0){throw "Native $arch build failed"}
+    $focusName=if($arch -eq 'x86_64'){'SideScreen.ChromeFocus.dll'}else{'SideScreen.ChromeFocus32.dll'}
+    & $ZigExecutable cc -target "$arch-windows-gnu" -O2 -shared -DSIDESCREEN_FOCUS_ONLY -DUNICODE -D_UNICODE -I (Join-Path $minhook 'include') @sources (Join-Path $minhook ('src\hde\'+$hde)) -luser32 -lkernel32 -lole32 -o (Join-Path $output $focusName)
+    if($LASTEXITCODE -ne 0){throw "Chrome focus $arch build failed"}
 }
 Copy-Item -LiteralPath (Join-Path $minhook 'LICENSE.txt') -Destination (Join-Path $output 'MinHook-LICENSE.txt') -Force
 Write-Host 'Built both original virtual-input adapters; MinHook license copied.'

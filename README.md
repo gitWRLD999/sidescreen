@@ -15,6 +15,7 @@ Give agent windows somewhere to live, watch them in a passive preview, and bring
 - An optional persistent CUA adapter, a per-user restart supervisor, and eight scoped Muse/MCP tools. CUA is installed separately. [Muse Link](https://github.com/gitWRLD999/muse-link) combines these with regular Chrome tools in one agent connection.
 - A free [SideCursor](docs/sidecursor.md) software pointer, scoped to a fresh window screenshot, with its own blue marker in the preview. Supported background operations preserve the human cursor; this does not create a separate Windows input session.
 - Free [SideUser input](docs/sideusers.md): original x64/x86 per-event cursor, modifier and capture state, drag, wheel, double-click and native edit keyboard operations. Muse Link adds window leases, labeled cursors, private text clipboards and named macros for agents.
+- A scoped [Chrome activation guard](docs/chrome-focus.md) for Muse Link's native account chooser actions. It suppresses activation of the assigned background Chrome window without virtualizing physical keyboard or mouse input. The actual FedCM chooser was tested with fictional loopback accounts.
 - A passive preview that sends no keyboard or pointer input to the agent screen.
 - Support for physical monitors beyond the original laptop model, including displays positioned left of the primary monitor.
 - A guard that refuses to disable the virtual monitor when no usable physical screen is active.
@@ -24,11 +25,11 @@ Early release: Windows x64, one active MTT virtual monitor. Driver binaries, rem
 ## Quick start
 
 1. Install [VirtualDrivers' Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) from its official release. Keep a physical display enabled and choose **Extend these displays** in Windows Display Settings.
-2. Download `SideScreen-0.6.0-win-x64.zip` from this repository's [releases](https://github.com/gitWRLD999/sidescreen/releases), or build from source below. Extract the whole folder. Run `SideScreen.exe`, or run `install-user.ps1 -StartTray -StartAtLogin` to copy the tools to `%USERPROFILE%\AgentTools\SideScreen`, install the Codex skill, and start the tray at future sign-ins. Omit `-StartAtLogin` if you want to launch it manually. For separately installed CUA, add `-StartCua -CuaAtLogin`; see [CUA setup](docs/cua.md).
+2. Download `SideScreen-0.7.0-win-x64.zip` from this repository's [releases](https://github.com/gitWRLD999/sidescreen/releases), or build from source below. Extract the whole folder. Run `SideScreen.exe`, or run `install-user.ps1 -StartTray -StartAtLogin` to copy the tools to `%USERPROFILE%\AgentTools\SideScreen`, install the Codex skill, and start the tray at future sign-ins. Omit `-StartAtLogin` if you want to launch it manually. For separately installed CUA, add `-StartCua -CuaAtLogin`; see [CUA setup](docs/cua.md).
 3. Open the tray controls. Use **View screen** for a preview; use the commands below to place a normal window on the agent screen.
 
 Windows requests elevation only when enabling or disabling the driver. Viewing, listing, capture and placement run as your ordinary Windows user. The app does not install a driver, change screen resolutions, or start a remote server.
-To update an existing installation, exit the SideScreen tray app before running `install-user.ps1` again.
+To update an existing installation, exit the SideScreen tray app before running `install-user.ps1` again. A changed Chrome activation DLL requires closing Chrome too; the installer refuses to replace a loaded guard. Identical files are kept in place.
 
 If only the virtual display is active, preview/recovery and **Turn off** are unavailable. Enable a physical screen in Windows Display Settings; opening the laptop lid may be enough. This preserves the only remaining display instead of leaving you without remote video.
 

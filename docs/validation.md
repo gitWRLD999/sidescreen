@@ -1,5 +1,16 @@
 # Release validation
 
+Version 0.7 adds a separate activation-only Chrome guard. The installed Muse
+Link 1.4 MCP proxy completed Chrome's actual FedCM account chooser against a
+loopback identity provider with fictional accounts. Both the account button
+and native Continue action preserved foreground, keyboard focus and cursor;
+the fixture verified the completed identity exchange independently. Trusted
+page pixel clicks, Unicode typing, Backspace and scrolling also passed with
+preserved host input. The 26 non-UI and 12 Muse adapter checks passed. A real
+Google/OpenTrain login, every Chrome prompt and universal isolation are not
+certified by this fixture. Cold Chrome extension attachment can still activate
+Chrome and is detected before subsequent business actions.
+
 Version 0.6 adds the original x64/x86 user-mode virtual-input adapter. It passed
 118 live checks against disposable 64-bit and 32-bit WinForms windows: standard
 button effects and virtual cursor queries, Unicode insertion, Ctrl+A selection

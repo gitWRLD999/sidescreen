@@ -13,6 +13,8 @@ $wpf=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\WPF'
 if($LASTEXITCODE -ne 0){throw 'Background input build failed'}
 & $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.Cua.exe" "/r:$core" "/r:$output\SideScreen.Input.exe" /r:System.Drawing.dll /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'src\CuaBridge.cs') (Join-Path $PSScriptRoot 'src\SideCursor.cs') (Join-Path $PSScriptRoot 'src\NativeWire.cs') (Join-Path $PSScriptRoot 'src\VirtualInput.cs')
 if($LASTEXITCODE -ne 0){throw 'CUA bridge build failed'}
+& $compiler /nologo /target:exe /platform:x64 "/out:$output\SideScreen.ChromeFocus.exe" "/r:$core" "/r:$output\SideScreen.Input.exe" /r:System.Drawing.dll /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'src\ChromeFocus.cs')
+if($LASTEXITCODE -ne 0){throw 'Chrome focus guard build failed'}
 & $compiler /nologo /target:exe /platform:x86 /define:NATIVE_HOST "/out:$output\SideScreen.Virtual32Host.exe" /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'src\NativeWire.cs')
 if($LASTEXITCODE -ne 0){throw '32-bit virtual input host build failed'}
 & $compiler /nologo /target:winexe /platform:x64 "/out:$output\SideScreen.exe" "/r:$core" /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Core.dll /r:System.Web.Extensions.dll (Join-Path $PSScriptRoot 'src\AppPaths.cs') (Join-Path $PSScriptRoot 'src\Tray.cs') (Join-Path $PSScriptRoot 'src\Preview.cs')
