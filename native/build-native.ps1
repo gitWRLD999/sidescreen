@@ -7,6 +7,7 @@ New-Item -ItemType Directory -Path $output -Force | Out-Null
 $minhook=[IO.Path]::GetFullPath($MinHookDirectory)
 $sources=@((Join-Path $PSScriptRoot 'virtual-input.c'),(Join-Path $minhook 'src\buffer.c'),(Join-Path $minhook 'src\hook.c'),(Join-Path $minhook 'src\trampoline.c'))
 foreach($arch in @('x86_64','x86')) {
+    Write-Host "Compiling the $arch adapter."
     $hde=if($arch -eq 'x86_64'){'hde64.c'}else{'hde32.c'}
     $name=if($arch -eq 'x86_64'){'SideScreen.VirtualInput.dll'}else{'SideScreen.VirtualInput32.dll'}
     & $ZigExecutable cc -target "$arch-windows-gnu" -O2 -shared -DUNICODE -D_UNICODE -I (Join-Path $minhook 'include') @sources (Join-Path $minhook ('src\hde\'+$hde)) -luser32 -lkernel32 -lole32 -o (Join-Path $output $name)
