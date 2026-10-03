@@ -2,7 +2,7 @@
 param([switch]$StartTray,[switch]$StartAtLogin,[switch]$StartCua,[switch]$CuaAtLogin)
 $ErrorActionPreference='Stop'
 $source=$PSScriptRoot
-$destination=Join-Path $env:LOCALAPPDATA 'SideScreenTools'
+$destination=Join-Path $env:USERPROFILE 'AgentTools\SideScreen'
 $skillSource=Join-Path $source 'skills\sidescreen\SKILL.md'
 $skillDestination=Join-Path $env:USERPROFILE '.codex\skills\sidescreen'
 foreach($name in @('SideScreen.exe','SideScreen.Core.dll','SideScreen.Input.exe','SideScreen.Cua.exe','agent.ps1','background.ps1','cua.ps1','start-cua.ps1','display.ps1')) {

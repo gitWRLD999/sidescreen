@@ -34,6 +34,7 @@ namespace SideScreen {
         public bool ForegroundPreserved, KeyboardFocusPreserved, CursorPreserved;
         public int ForegroundChanges;
         public bool TargetActivated;
+        public long ForegroundHandle;
         public bool Preserved { get { return ForegroundPreserved && KeyboardFocusPreserved; } }
     }
     // This observes interference; it never tries to restore focus or move the pointer.
@@ -72,6 +73,7 @@ namespace SideScreen {
                 };
                 try {
                     foreground=GetForegroundWindow();
+                    receipt.ForegroundHandle=foreground.ToInt64();
                     if(foreground==IntPtr.Zero || foreground.ToInt64()==target)throw new InvalidOperationException("Background input requires another foreground window on an unlocked desktop.");
                     uint pid;foregroundThread=GetWindowThreadProcessId(foreground,out pid);
                     keyboard=Focus(foregroundThread);
@@ -107,7 +109,7 @@ namespace SideScreen {
     }
     public static class BackgroundInput {
         static readonly JavaScriptSerializer Json=new JavaScriptSerializer {MaxJsonLength=1048576};
-        static readonly string State=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SideScreen","observations");
+        static readonly string State=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),"AgentTools","SideScreen","state","observations");
         [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
         [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
         [DllImport("user32.dll")] static extern bool IsWindowEnabled(IntPtr h);
@@ -138,12 +140,12 @@ namespace SideScreen {
             if(window==null || IsIconic(new IntPtr(handle)) || !IsWindowEnabled(new IntPtr(handle)) || !Inside(window.Bounds,area))throw new InvalidOperationException("Target must be a visible, enabled window fully inside the agent display.");
             return window;
         }
-        static IEnumerable<AutomationElement> Walk(AutomationElement root) {
+        static IEnumerable<AutomationElement> Walk(AutomationElement root,CacheRequest cache=null) {
             var pending=new Stack<AutomationElement>();pending.Push(root);int count=0;
             while(pending.Count>0 && count++<512) {
                 var element=pending.Pop();yield return element;
-                var children=new List<AutomationElement>();var child=TreeWalker.ControlViewWalker.GetFirstChild(element);
-                while(child!=null && children.Count<512){children.Add(child);child=TreeWalker.ControlViewWalker.GetNextSibling(child);}
+                var children=new List<AutomationElement>();var child=cache==null?TreeWalker.ControlViewWalker.GetFirstChild(element):TreeWalker.ControlViewWalker.GetFirstChild(element,cache);
+                while(child!=null && children.Count<512){children.Add(child);child=cache==null?TreeWalker.ControlViewWalker.GetNextSibling(child):TreeWalker.ControlViewWalker.GetNextSibling(child,cache);}
                 for(int i=children.Count-1;i>=0;i--)pending.Push(children[i]);
             }
         }
@@ -213,12 +215,30 @@ namespace SideScreen {
         }
         public static object Inspect(InputRequest request) {
             var window=Scope(request.WindowHandle,request.ExpectedDisplayId);
-            var root=AutomationElement.FromHandle(new IntPtr(window.Handle));
+            var cache=new CacheRequest {TreeScope=TreeScope.Element};
+            foreach(var property in new[]{AutomationElement.NameProperty,AutomationElement.AutomationIdProperty,AutomationElement.ControlTypeProperty,AutomationElement.ClassNameProperty,AutomationElement.NativeWindowHandleProperty,AutomationElement.IsEnabledProperty,AutomationElement.IsOffscreenProperty,AutomationElement.IsPasswordProperty,AutomationElement.BoundingRectangleProperty,ValuePattern.IsReadOnlyProperty})cache.Add(property);
+            var root=AutomationElement.FromHandle(new IntPtr(window.Handle)).GetUpdatedCache(cache);
             var info=new List<ElementInfo>();
-            foreach(var element in Walk(root)) {
-                var current=element.Current;
+            foreach(var element in Walk(root,cache)) {
+                var current=element.Cached;
                 var rect=current.BoundingRectangle;
-                info.Add(new ElementInfo {Id=info.Count,RuntimeId=Runtime(element),Name=current.Name,AutomationId=current.AutomationId,ControlType=current.ControlType.ProgrammaticName,ClassName=current.ClassName,NativeHandle=current.NativeWindowHandle,Enabled=current.IsEnabled,Offscreen=current.IsOffscreen,IsPassword=current.IsPassword,IsReadOnly=ReadOnly(element),Bounds=rect.IsEmpty?Rectangle.Empty:Rectangle.FromLTRB((int)Math.Floor(rect.Left),(int)Math.Floor(rect.Top),(int)Math.Ceiling(rect.Right),(int)Math.Ceiling(rect.Bottom)),Actions=Actions(element)});
+                object readOnly=element.GetCachedPropertyValue(ValuePattern.IsReadOnlyProperty,true);
+                var entry=new ElementInfo {Id=info.Count,RuntimeId=Runtime(element),Name=current.Name,AutomationId=current.AutomationId,ControlType=current.ControlType.ProgrammaticName,ClassName=current.ClassName,NativeHandle=current.NativeWindowHandle,Enabled=current.IsEnabled,Offscreen=current.IsOffscreen,IsPassword=current.IsPassword,IsReadOnly=readOnly is bool && (bool)readOnly,Bounds=rect.IsEmpty?Rectangle.Empty:Rectangle.FromLTRB((int)Math.Floor(rect.Left),(int)Math.Floor(rect.Top),(int)Math.Ceiling(rect.Right),(int)Math.Ceiling(rect.Bottom))};
+                var actions=new List<string>();
+                if(entry.Enabled && !entry.IsPassword && !entry.IsReadOnly && !entry.Offscreen) {
+                    IntPtr handle=new IntPtr(entry.NativeHandle);long style=handle==IntPtr.Zero?0:GetWindowLongPtr(handle,-16).ToInt64();
+                    if(Kind(handle,"Edit") && (style&0x820)==0)actions.Add("SetValue");
+                    if(Kind(handle,"Button")) {
+                        int type=(int)(style&15);
+                        if(type==0||type==1||(type==11 && entry.ClassName.StartsWith("WindowsForms10.",StringComparison.OrdinalIgnoreCase) && entry.ControlType=="ControlType.Button"))actions.Add("Invoke");
+                        if(type==2||type==3||type==5||type==6)actions.Add("Toggle");
+                    }
+                    if(entry.ControlType=="ControlType.ListItem") {
+                        var parent=ListParent(element);
+                        if(Kind(parent,"ListBox")) {long listStyle=GetWindowLongPtr(parent,-16).ToInt64();if((listStyle&0x808)==0 && ((listStyle&0x30)==0 || (listStyle&0x40)!=0))actions.Add("Select");}
+                    }
+                }
+                entry.Actions=actions.ToArray();info.Add(entry);
             }
             var observation=new Observation {Id=Guid.NewGuid().ToString("N"),DisplayId=request.ExpectedDisplayId,WindowHandle=window.Handle,ProcessId=window.ProcessId,ProcessStartTicks=Process.GetProcessById((int)window.ProcessId).StartTime.ToUniversalTime().Ticks,RootRuntimeId=Runtime(root),ExpiresUtcTicks=DateTime.UtcNow.AddMinutes(2).Ticks,Elements=info.ToArray()};
             Cleanup();File.WriteAllText(Path.Combine(State,observation.Id+".json"),Json.Serialize(observation));

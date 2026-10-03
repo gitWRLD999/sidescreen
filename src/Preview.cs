@@ -157,6 +157,36 @@ internal static class VirtualScreenWindows {
 }
 
 internal sealed class VirtualScreenViewer : Form {
+    [StructLayout(LayoutKind.Sequential)] struct CursorInfo {public int Size,Flags;public IntPtr Cursor;public Point Position;}
+    [StructLayout(LayoutKind.Sequential)] struct IconInfo {public bool IsIcon;public int XHotspot,YHotspot;public IntPtr Mask,Color;}
+    [DllImport("user32.dll")] static extern bool GetCursorInfo(ref CursorInfo info);
+    [DllImport("user32.dll")] static extern IntPtr CopyIcon(IntPtr icon);
+    [DllImport("user32.dll")] static extern bool GetIconInfo(IntPtr icon,out IconInfo info);
+    [DllImport("user32.dll")] static extern bool DrawIconEx(IntPtr dc,int x,int y,IntPtr icon,int width,int height,int step,IntPtr brush,int flags);
+    [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr icon);
+    [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr obj);
+    [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr window);
+    [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr window,IntPtr dc);
+    [DllImport("gdi32.dll",SetLastError=true)] static extern bool BitBlt(IntPtr destination,int x,int y,int width,int height,IntPtr source,int sourceX,int sourceY,uint operation);
+    static void CaptureScreen(Graphics graphics,Rectangle area) {
+        IntPtr source=GetDC(IntPtr.Zero);if(source==IntPtr.Zero)throw new Win32Exception("Desktop capture unavailable");
+        try {
+            IntPtr destination=graphics.GetHdc();
+            try {if(!BitBlt(destination,0,0,area.Width,area.Height,source,area.X,area.Y,0x40CC0020))throw new Win32Exception(Marshal.GetLastWin32Error());}
+            finally {graphics.ReleaseHdc(destination);}
+        }finally {ReleaseDC(IntPtr.Zero,source);}
+    }
+    static void DrawHumanCursor(Graphics graphics,Rectangle area) {
+        var cursor=new CursorInfo {Size=Marshal.SizeOf(typeof(CursorInfo))};
+        if(!GetCursorInfo(ref cursor) || (cursor.Flags&1)==0 || !area.Contains(cursor.Position))return;
+        IntPtr copy=CopyIcon(cursor.Cursor);if(copy==IntPtr.Zero)return;
+        var icon=new IconInfo();
+        try {
+            if(!GetIconInfo(copy,out icon))return;
+            IntPtr dc=graphics.GetHdc();
+            try{DrawIconEx(dc,cursor.Position.X-area.X-icon.XHotspot,cursor.Position.Y-area.Y-icon.YHotspot,copy,0,0,0,IntPtr.Zero,3);}finally{graphics.ReleaseHdc(dc);}
+        }finally {if(icon.Mask!=IntPtr.Zero)DeleteObject(icon.Mask);if(icon.Color!=IntPtr.Zero)DeleteObject(icon.Color);DestroyIcon(copy);}
+    }
     readonly PreviewSurface surface;
     readonly ListView windows;
     readonly Label status;
@@ -190,7 +220,7 @@ internal sealed class VirtualScreenViewer : Form {
         buttons.Controls.AddRange(new Control[]{selected,all,close});
         layout.Controls.Add(status,0,0); layout.Controls.Add(surface,0,1); layout.Controls.Add(windows,0,2); layout.Controls.Add(buttons,0,3);
         Controls.Add(layout);
-        timer=new System.Windows.Forms.Timer { Interval=400 };
+        timer=new System.Windows.Forms.Timer { Interval=100 };
         timer.Tick+=delegate { RefreshPreview(); };
         Shown+=delegate { RefreshPreview(); timer.Start(); };
         Resize+=delegate { if(WindowState==FormWindowState.Minimized) timer.Stop(); else if(Visible) timer.Start(); };
@@ -212,10 +242,13 @@ internal sealed class VirtualScreenViewer : Form {
                 surface.Frame=null; if(frame!=null)frame.Dispose(); frame=new Bitmap(area.Value.Width,area.Value.Height,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             }
             using(new VirtualScreenWindows.PhysicalPixels())
-            using(var g=Graphics.FromImage(frame)) { g.CopyFromScreen(area.Value.Location,Point.Empty,area.Value.Size,CopyPixelOperation.SourceCopy); }
+            using(var g=Graphics.FromImage(frame)) {
+                CaptureScreen(g,area.Value);
+                DrawHumanCursor(g,area.Value);
+            }
             surface.Frame=frame; surface.Message=""; surface.Invalidate();
-            status.Text="Live view  ·  "+area.Value.Width+" × "+area.Value.Height+"  ·  Select a window below to bring it back";
-            if(ticks++%5==0) UpdateList();
+            status.Text="Live view  ·  "+area.Value.Width+" × "+area.Value.Height+"  ·  "+DateTime.Now.ToString("HH:mm:ss.fff")+"  ·  Human cursor included";
+            if(ticks++%20==0) UpdateList();
         } catch(Exception ex) { surface.Frame=null; surface.Message="Preview unavailable"; surface.Invalidate(); status.Text=ex.Message; }
     }
     void UpdateList() {

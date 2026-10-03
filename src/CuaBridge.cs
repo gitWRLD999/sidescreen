@@ -15,6 +15,9 @@ namespace SideScreen {
         public string Action, ExpectedDisplayId, ObservationId, Tool;
         public long WindowHandle;
         public bool IncludeScreenshot=true;
+        public bool IncludeAccessibilityTree=true;
+        public int MaxElements=256, MaxDepth=20, MaxImageDimension=1280;
+        public string Query;
         public Dictionary<string,object> Arguments;
     }
     public sealed class CuaObservation {
@@ -29,27 +32,80 @@ namespace SideScreen {
     public static class CuaBridge {
         [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
         static readonly JavaScriptSerializer Json=new JavaScriptSerializer {MaxJsonLength=8388608};
-        static readonly string State=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"SideScreen","cua-observations");
-        public static string Binary {get {return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","Cua","cua-driver","bin","cua-driver.exe");}}
+        static readonly string State=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),"AgentTools","SideScreen","state","cua-observations");
+        public static string Binary {get {
+            string configured=Environment.GetEnvironmentVariable("SIDESCREEN_CUA_BINARY");if(!String.IsNullOrEmpty(configured))return configured;
+            string shared=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),"AgentTools","Cua","bin","cua-driver.exe");if(File.Exists(shared))return shared;
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Programs","Cua","cua-driver","bin","cua-driver.exe");
+        }}
         public static string Socket {get {return @"\\.\pipe\SideScreen.Cua."+Process.GetCurrentProcess().SessionId;}}
         static string Text(Dictionary<string,object> value,string key) {object item;return value.TryGetValue(key,out item)?Convert.ToString(item):null;}
         static Dictionary<string,object> Object(object item) {return item as Dictionary<string,object>;}
         static Dictionary<string,object>[] Objects(object item) {var array=item as IEnumerable;return array==null?new Dictionary<string,object>[0]:array.Cast<object>().Select(Object).Where(v=>v!=null).ToArray();}
         static bool Failed(Dictionary<string,object> value) {return (value.ContainsKey("isError") && Convert.ToBoolean(value["isError"])) || (value.ContainsKey("ok") && !Convert.ToBoolean(value["ok"])) || value.ContainsKey("error");}
+        static Process driverProcess;
+        static bool resident;
+        static System.Threading.Tasks.Task<string> driverLine;
+        static int rpcId;
+        static readonly Dictionary<string,InputGuard> guards=new Dictionary<string,InputGuard>();
+        static void WriteDriver(object message) {
+            byte[] bytes=Encoding.UTF8.GetBytes(Json.Serialize(message)+"\n");
+            driverProcess.StandardInput.BaseStream.Write(bytes,0,bytes.Length);driverProcess.StandardInput.BaseStream.Flush();
+        }
+        static Dictionary<string,object> Rpc(string method,object parameters,int timeout) {
+            int id=++rpcId;
+            WriteDriver(new {jsonrpc="2.0",id=id,method=method,@params=parameters});
+            var timer=Stopwatch.StartNew();
+            while(timer.ElapsedMilliseconds<timeout) {
+                if(driverLine==null)driverLine=driverProcess.StandardOutput.ReadLineAsync();
+                if(!driverLine.Wait(Math.Max(1,timeout-(int)timer.ElapsedMilliseconds)))throw new InvalidOperationException("CUA timed out; outcome unknown. Observe before continuing; never retry automatically.");
+                string line=driverLine.Result;driverLine=null;
+                if(line==null)throw new InvalidOperationException("CUA connection closed; observe before continuing.");
+                var response=Json.Deserialize<Dictionary<string,object>>(line);
+                if(!response.ContainsKey("id") || Convert.ToInt32(response["id"])!=id)continue;
+                if(response.ContainsKey("error"))throw new InvalidOperationException(Json.Serialize(response["error"]));
+                return Object(response["result"]);
+            }
+            throw new InvalidOperationException("CUA response deadline exceeded; outcome unknown.");
+        }
+        static void CloseDriver() {if(driverProcess!=null){try{if(!driverProcess.HasExited)driverProcess.Kill();}catch{}driverProcess.Dispose();driverProcess=null;driverLine=null;}}
         static Dictionary<string,object> Driver(string tool,Dictionary<string,object> args,int timeout=20000) {
             if(!File.Exists(Binary))throw new InvalidOperationException("Install the optional official CUA Driver first; see docs/cua.md.");
-            var info=new ProcessStartInfo(Binary,"call "+tool+" --socket "+Socket) {UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=new UTF8Encoding(false),StandardErrorEncoding=new UTF8Encoding(false)};
-            info.EnvironmentVariables["CUA_DRIVER_RS_TELEMETRY_ENABLED"]="false";
-            using(var process=Process.Start(info)) {
-                var output=process.StandardOutput.ReadToEndAsync();var errors=process.StandardError.ReadToEndAsync();
-                byte[] bytes=Encoding.UTF8.GetBytes(Json.Serialize(args));process.StandardInput.BaseStream.Write(bytes,0,bytes.Length);process.StandardInput.Close();
-                if(!process.WaitForExit(timeout)){process.Kill();throw new InvalidOperationException("CUA timed out; outcome unknown. Observe before continuing; never retry automatically.");}
-                Dictionary<string,object> result;
-                try {result=Json.Deserialize<Dictionary<string,object>>(output.Result);} catch {throw new InvalidOperationException("CUA did not return JSON. Ensure the SideScreen CUA service is running. "+errors.Result.Trim());}
-                if(result==null)throw new InvalidOperationException("Empty CUA response. Ensure SideScreen's CUA supervisor is running. "+errors.Result.Trim());
-                if(process.ExitCode!=0 && !Failed(result))result["isError"]=true;
-                return result;
+            // A one-shot MCP client's close ends its sessions. Preserve the CLI
+            // transport for legacy separate observe/act processes; Muse keeps MCP alive.
+            if(!resident) {
+                var cli=new ProcessStartInfo(Binary,"call "+tool+" --socket "+Socket) {UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=new UTF8Encoding(false),StandardErrorEncoding=new UTF8Encoding(false)};
+                cli.EnvironmentVariables["CUA_DRIVER_RS_TELEMETRY_ENABLED"]="false";
+                using(var process=Process.Start(cli)) {
+                    var output=process.StandardOutput.ReadToEndAsync();var errors=process.StandardError.ReadToEndAsync();
+                    byte[] bytes=Encoding.UTF8.GetBytes(Json.Serialize(args));process.StandardInput.BaseStream.Write(bytes,0,bytes.Length);process.StandardInput.Close();
+                    if(!process.WaitForExit(timeout)){process.Kill();throw new InvalidOperationException("CUA timed out; outcome unknown. Observe before continuing; never retry automatically.");}
+                    var result=Json.Deserialize<Dictionary<string,object>>(output.Result);
+                    if(result==null)throw new InvalidOperationException("Empty CUA response. "+errors.Result.Trim());
+                    if(process.ExitCode!=0 && !Failed(result))result["isError"]=true;return result;
+                }
             }
+            try {
+                if(driverProcess==null || driverProcess.HasExited) {
+                    CloseDriver();
+                    var info=new ProcessStartInfo(Binary,"mcp --socket "+Socket) {UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true,StandardOutputEncoding=new UTF8Encoding(false),StandardErrorEncoding=new UTF8Encoding(false)};
+                    info.EnvironmentVariables["CUA_DRIVER_RS_TELEMETRY_ENABLED"]="false";
+                    driverProcess=Process.Start(info);driverProcess.ErrorDataReceived+=delegate{};driverProcess.BeginErrorReadLine();
+                    Rpc("initialize",new {protocolVersion="2024-11-05",capabilities=new {},clientInfo=new {name="SideScreen",version="0.4.0"}},15000);
+                    WriteDriver(new {jsonrpc="2.0",method="notifications/initialized"});
+                }
+                var result=Rpc("tools/call",new {name=tool,arguments=args},timeout);
+                if(result.ContainsKey("structuredContent")) {
+                    var structured=Object(result["structuredContent"]);
+                    if(Failed(result)){structured["isError"]=true;structured["messages"]=Objects(result.ContainsKey("content")?result["content"]:null).Select(c=>Text(c,"text")).Where(t=>t!=null).ToArray();}
+                    return structured;
+                }
+                foreach(var content in Objects(result.ContainsKey("content")?result["content"]:null)) {
+                    string text=Text(content,"text");
+                    if(text!=null && text.TrimStart().StartsWith("{")){var parsed=Json.Deserialize<Dictionary<string,object>>(text);if(Failed(result))parsed["isError"]=true;return parsed;}
+                }
+                return result;
+            }catch{CloseDriver();throw;}
         }
         static Dictionary<string,object> Target(CuaObservation observation) {return new Dictionary<string,object>{{"pid",observation.ProcessId},{"window_id",observation.WindowHandle},{"session","sidescreen-"+observation.Id}};}
         static string[] Strings(object value) {var items=value as IEnumerable;return items==null?new string[0]:items.Cast<object>().Select(Convert.ToString).ToArray();}
@@ -85,15 +141,21 @@ namespace SideScreen {
             Directory.CreateDirectory(State);
             foreach(string old in Directory.GetFiles(State,"*.json"))if(File.GetLastWriteTimeUtc(old)<DateTime.UtcNow.AddMinutes(-5))File.Delete(old);
             var observation=new CuaObservation {Id=Guid.NewGuid().ToString("N"),DisplayId=request.ExpectedDisplayId,WindowHandle=window.Handle,ProcessId=window.ProcessId,ProcessStartTicks=Process.GetProcessById((int)window.ProcessId).StartTime.ToUniversalTime().Ticks,ExpiresUtcTicks=DateTime.UtcNow.AddMinutes(2).Ticks,Bounds=window.Bounds};
-            var args=Target(observation);args["max_elements"]=512;args["timeout_ms"]=5000;args["include_screenshot"]=request.IncludeScreenshot;
-            if(request.IncludeScreenshot){observation.ScreenshotPath=Path.Combine(State,observation.Id+".png");args["screenshot_out_file"]=observation.ScreenshotPath;args["max_image_dimension"]=0;}
+            var clock=Stopwatch.StartNew();
+            var args=Target(observation);args["max_elements"]=Math.Max(1,Math.Min(512,request.MaxElements));args["max_depth"]=Math.Max(1,Math.Min(50,request.MaxDepth));args["timeout_ms"]=5000;args["include_screenshot"]=request.IncludeScreenshot;args["include_accessibility_tree"]=request.IncludeAccessibilityTree;
+            if(!String.IsNullOrEmpty(request.Query))args["query"]=request.Query;
+            if(request.IncludeScreenshot){observation.ScreenshotPath=Path.Combine(State,observation.Id+".png");args["screenshot_out_file"]=observation.ScreenshotPath;args["max_image_dimension"]=Math.Max(0,Math.Min(4096,request.MaxImageDimension));}
             var result=Driver("get_window_state",args);
+            long driverMs=clock.ElapsedMilliseconds;
             if(Failed(result))return new {ok=false,stop=true,driver=result};
             // CUA's accessibility advertisement alone is not proof of safe input.
-            var native=Json.Deserialize<Dictionary<string,object>>(Json.Serialize(BackgroundInput.Inspect(new InputRequest {Action="Inspect",WindowHandle=window.Handle,ExpectedDisplayId=request.ExpectedDisplayId})));
-            var nativeObservation=Json.Deserialize<Observation>(Json.Serialize(native["observation"]));
-            observation.NativeId=nativeObservation.Id;observation.NativeElements=nativeObservation.Elements;
-            observation.Elements=Objects(result["elements"]);observation.CaptureId=Text(result,"capture_id");
+            observation.NativeElements=new ElementInfo[0];
+            if(request.IncludeAccessibilityTree) {
+                var native=Json.Deserialize<Dictionary<string,object>>(Json.Serialize(BackgroundInput.Inspect(new InputRequest {Action="Inspect",WindowHandle=window.Handle,ExpectedDisplayId=request.ExpectedDisplayId})));
+                var nativeObservation=Json.Deserialize<Observation>(Json.Serialize(native["observation"]));
+                observation.NativeId=nativeObservation.Id;observation.NativeElements=nativeObservation.Elements;
+            }
+            observation.Elements=Objects(result.ContainsKey("elements")?result["elements"]:null);observation.CaptureId=Text(result,"capture_id");
             foreach(var element in observation.Elements) {
                 var match=NativeMatch(element,observation.NativeElements);
                 // Password/read-only native elements are excluded by the native backend.
@@ -108,7 +170,7 @@ namespace SideScreen {
             var current=BackgroundInput.Scope(window.Handle,request.ExpectedDisplayId);
             if(current.ProcessId!=window.ProcessId || current.Bounds!=window.Bounds)throw new InvalidOperationException("Window changed during observation; observe again.");
             File.WriteAllText(Path.Combine(State,observation.Id+".json"),Json.Serialize(observation));
-            return new {ok=true,backend="cua-driver",observationId=observation.Id,expiresInSeconds=120,windowHandle=window.Handle,displayId=observation.DisplayId,state=result,screenshotPath=observation.ScreenshotPath};
+            return new {ok=true,backend="cua-driver",observationId=observation.Id,expiresInSeconds=120,windowHandle=window.Handle,displayId=observation.DisplayId,state=result,screenshotPath=observation.ScreenshotPath,timing=new {driverMs=driverMs,corroborationMs=clock.ElapsedMilliseconds-driverMs,totalMs=clock.ElapsedMilliseconds},image=new {width=observation.ImageWidth,height=observation.ImageHeight,windowWidth=observation.Bounds.Width,windowHeight=observation.Bounds.Height,coordinates="capture pixels; capture_id required"}};
         }
         static object Act(CuaRequest request) {
             Guid id;if(!Guid.TryParseExact(request.ObservationId,"N",out id))throw new InvalidOperationException("Provide ObservationId from CuaObserve.");
@@ -161,37 +223,58 @@ namespace SideScreen {
             return new {ok=ok,stop=!ok,dispatched=dispatched,backend="cua-driver",deliveryMode="background",universalIsolation=false,driver=result,focus=focus,error=error??(!focus.Preserved?"Foreground or keyboard focus changed; stop and observe.":null)};
         }
         public static object Execute(CuaRequest request) {
+            if(request.Action=="FocusBegin") {
+                string id=Guid.NewGuid().ToString("N");guards.Add(id,new InputGuard(0));return new {ok=true,guardId=id};
+            }
+            if(request.Action=="FocusEnd") {
+                InputGuard guard;if(!guards.TryGetValue(request.ObservationId??"",out guard))throw new InvalidOperationException("Focus guard missing.");
+                guards.Remove(request.ObservationId);var receipt=guard.Finish();return new {ok=receipt.Preserved,stop=!receipt.Preserved,focus=receipt};
+            }
             if(request.Action=="Status") {
-                var virtualDisplays=DisplayAudit.Read().Where(d=>d.IsVirtualMonitor).ToArray();
+                var displays=DisplayAudit.Read();var virtualDisplays=displays.Where(d=>d.IsVirtualMonitor).ToArray();
+                bool safeLayout=virtualDisplays.Length==1 && !displays.Any(d=>!d.IsVirtualMonitor && new Rectangle(d.X,d.Y,(int)d.Width,(int)d.Height).IntersectsWith(new Rectangle(virtualDisplays[0].X,virtualDisplays[0].Y,(int)virtualDisplays[0].Width,(int)virtualDisplays[0].Height)));
                 object screen=null;
                 if(virtualDisplays.Length==1){var d=virtualDisplays[0];screen=new {id=Layout.Id(d),deviceName=d.GdiName,x=d.X,y=d.Y,width=d.Width,height=d.Height};}
-                return new {ok=true,available=virtualDisplays.Length==1,agentScreen=screen,installed=File.Exists(Binary),binary=Binary,socket=Socket,inputIsolation=false,deliveryMode="background",tools=new[]{"click","set_value","type_text","scroll","press_key","hotkey"},version="0.3.0"};
+                bool ready=false;string healthError=null;
+                if(File.Exists(Binary)){try{var probe=Driver("list_windows",new Dictionary<string,object>{{"pid",Process.GetCurrentProcess().Id}},5000);ready=!Failed(probe);if(!ready)healthError="CUA refused readiness probe";}catch(Exception e){healthError=e.Message;}}
+                return new {ok=true,available=safeLayout,nonOverlapping=safeLayout,agentScreen=screen,installed=File.Exists(Binary),ready=ready,healthError=healthError,binary=Binary,socket=Socket,inputIsolation=false,deliveryMode="background",tools=new[]{"click","set_value","type_text","scroll","press_key","hotkey"},version="0.4.0"};
             }
             if(request.Action=="Windows")return new {ok=true,windows=Windows.ListOnAgentDisplay()};
             if(request.Action=="CuaObserve")return Observe(request);
             if(request.Action=="CuaAct")return Act(request);
             throw new InvalidOperationException("Unknown SideScreen CUA action.");
         }
-        [MTAThread] public static int Main() {
+        static object ExecuteLocked(CuaRequest request) {
+            using(var mutex=new Mutex(false,"Local\\SideScreen.BackgroundInput")) {
+                bool held=false;
+                try {
+                    try{held=mutex.WaitOne(0);}catch(AbandonedMutexException){held=true;}
+                    if(!held)throw new InvalidOperationException("Another SideScreen action is running.");
+                    try{return Execute(request);}finally {
+                        Guid id;
+                        if(request!=null && request.Action=="CuaAct" && Guid.TryParseExact(request.ObservationId,"N",out id)) {
+                            try{Driver("end_session",new Dictionary<string,object>{{"session","sidescreen-"+id.ToString("N")}},1500);}catch{}
+                        }
+                    }
+                }finally{if(held)mutex.ReleaseMutex();}
+            }
+        }
+        [MTAThread] public static int Main(string[] arguments) {
             Console.InputEncoding=new UTF8Encoding(false);Console.OutputEncoding=new UTF8Encoding(false);
             SetThreadDpiAwarenessContext(new IntPtr(-4));
+            resident=arguments.Contains("--server");
             try {
-                using(var mutex=new Mutex(false,"Local\\SideScreen.BackgroundInput")) {
-                    if(!mutex.WaitOne(0))throw new InvalidOperationException("Another SideScreen action is running.");
-                    try {
-                        var request=Json.Deserialize<CuaRequest>(Console.In.ReadToEnd());
-                        try {
-                            var response=Execute(request);string output=Json.Serialize(response);Console.WriteLine(output);
-                            return Convert.ToBoolean(Json.Deserialize<Dictionary<string,object>>(output)["ok"])?0:1;
-                        }finally {
-                            Guid id;
-                            if(request!=null && request.Action=="CuaAct" && Guid.TryParseExact(request.ObservationId,"N",out id)) {
-                                try{Driver("end_session",new Dictionary<string,object>{{"session","sidescreen-"+id.ToString("N")}},1500);}catch{}
-                            }
-                        }
-                    }finally{mutex.ReleaseMutex();}
+                if(arguments.Contains("--server")) {
+                    string line;
+                    while((line=Console.ReadLine())!=null) {
+                        try{Console.WriteLine(Json.Serialize(ExecuteLocked(Json.Deserialize<CuaRequest>(line))));}
+                        catch(Exception ex){Console.WriteLine(Json.Serialize(new {ok=false,stop=true,error=ex.Message}));}
+                    }
+                    return 0;
                 }
-            }catch(Exception ex){Console.WriteLine(Json.Serialize(new {ok=false,stop=true,error=ex.Message}));return 1;}
+                string output=Json.Serialize(ExecuteLocked(Json.Deserialize<CuaRequest>(Console.In.ReadToEnd())));Console.WriteLine(output);
+                return Convert.ToBoolean(Json.Deserialize<Dictionary<string,object>>(output)["ok"])?0:1;
+            }catch(Exception ex){Console.WriteLine(Json.Serialize(new {ok=false,stop=true,error=ex.Message}));return 1;}finally{foreach(var guard in guards.Values)guard.Dispose();CloseDriver();}
         }
     }
 }

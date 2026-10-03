@@ -38,7 +38,8 @@ try {
         $edit=if($kind -eq 'Background'){Token $o 'Agent text' 'Edit'}else{Token $o '' 'Edit'}
         $text='CUA caf'+[char]0xE9+' '+[char]0x3A9
         $result=Act $o 'set_value' @{element_token=$edit;value=$text};Quiet $result
-        Check ((Get-Content $state -Raw -Encoding UTF8 | ConvertFrom-Json).text -eq $text) 'Unicode text did not reach app'
+        $actual=(Get-Content $state -Raw -Encoding UTF8 | ConvertFrom-Json).text
+        Check ($actual -eq $text) ('Unicode text did not reach '+$kind+' app: expected '+$text+'; received '+$actual+'; receipt '+($result | ConvertTo-Json -Compress -Depth 6))
         Check ($result.backend -eq $(if($kind -eq 'Background'){'native-control-messages'}else{'cua-driver'})) 'Unexpected text route'
         $again=Act $o 'set_value' @{element_token=$edit;value='duplicate'}
         Check (!$again.ok) 'Consumed observation was reused'

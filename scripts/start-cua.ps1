@@ -1,11 +1,13 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference='Stop'
-$binary=Join-Path $env:LOCALAPPDATA 'Programs\Cua\cua-driver\bin\cua-driver.exe'
+$binary=if($env:SIDESCREEN_CUA_BINARY){$env:SIDESCREEN_CUA_BINARY}else{Join-Path $env:LOCALAPPDATA 'Programs\Cua\cua-driver\bin\cua-driver.exe'}
+$sharedBinary=Join-Path $env:USERPROFILE 'AgentTools\Cua\bin\cua-driver.exe'
+if(!$env:SIDESCREEN_CUA_BINARY -and (Test-Path -LiteralPath $sharedBinary)){$binary=$sharedBinary}
 if(!(Test-Path -LiteralPath $binary)){throw 'Install the official optional CUA Driver before starting this supervisor.'}
 $session=(Get-Process -Id $PID).SessionId
 if($session -eq 0){throw 'Start SideScreen CUA from the signed-in interactive desktop, not a service/SSH session.'}
-$state=Join-Path $env:LOCALAPPDATA 'SideScreen\cua-service'
+$state=Join-Path $env:USERPROFILE 'AgentTools\SideScreen\state\cua-service'
 New-Item -ItemType Directory -Path $state -Force | Out-Null
 $mutex=New-Object Threading.Mutex($false,"Local\SideScreen.CuaSupervisor.$session")
 if(!$mutex.WaitOne(0)){exit 0}
@@ -26,7 +28,7 @@ try {
         }finally{$probe.Dispose()}
         if($live){Start-Sleep -Seconds 15;continue}
         $start=New-Object Diagnostics.ProcessStartInfo
-        $start.FileName=$binary;$start.Arguments="serve --socket $socket"
+        $start.FileName=$binary;$start.Arguments="serve --socket $socket --cursor-reduced-motion on"
         $start.UseShellExecute=$false;$start.CreateNoWindow=$true
         $start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
         $process=[Diagnostics.Process]::Start($start)

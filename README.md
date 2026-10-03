@@ -12,7 +12,7 @@ Give agent windows somewhere to live, watch them in a passive preview, and bring
 - Window placement using `SWP_NOACTIVATE`, with a receipt reporting whether foreground focus and cursor position stayed the same.
 - JSON commands that agents can invoke locally or through an existing secure remote shell.
 - Scoped background input with one-use inspections, process identity checks, control readback, and foreground/keyboard-focus monitoring.
-- An optional CUA adapter, a per-user restart supervisor, and four scoped Muse/MCP tools. CUA is installed separately.
+- An optional persistent CUA adapter, a per-user restart supervisor, and eight scoped Muse/MCP tools. CUA is installed separately. [Muse Link](https://github.com/gitWRLD999/muse-link) combines these with regular Chrome tools in one agent connection.
 - A passive preview that sends no keyboard or pointer input to the agent screen.
 - Support for physical monitors beyond the original laptop model, including displays positioned left of the primary monitor.
 - A guard that refuses to disable the virtual monitor when no usable physical screen is active.
@@ -22,7 +22,7 @@ Early release: Windows x64, one active MTT virtual monitor. Driver binaries, rem
 ## Quick start
 
 1. Install [VirtualDrivers' Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) from its official release. Keep a physical display enabled and choose **Extend these displays** in Windows Display Settings.
-2. Download `SideScreen-0.3.0-win-x64.zip` from this repository's [releases](https://github.com/gitWRLD999/sidescreen/releases), or build from source below. Extract the whole folder. Run `SideScreen.exe`, or run `install-user.ps1 -StartTray -StartAtLogin` to copy the tools to `%LOCALAPPDATA%\SideScreenTools`, install the Codex skill, and start the tray at future sign-ins. Omit `-StartAtLogin` if you want to launch it manually. For separately installed CUA, add `-StartCua -CuaAtLogin`; see [CUA setup](docs/cua.md).
+2. Download `SideScreen-0.4.0-win-x64.zip` from this repository's [releases](https://github.com/gitWRLD999/sidescreen/releases), or build from source below. Extract the whole folder. Run `SideScreen.exe`, or run `install-user.ps1 -StartTray -StartAtLogin` to copy the tools to `%USERPROFILE%\AgentTools\SideScreen`, install the Codex skill, and start the tray at future sign-ins. Omit `-StartAtLogin` if you want to launch it manually. For separately installed CUA, add `-StartCua -CuaAtLogin`; see [CUA setup](docs/cua.md).
 3. Open the tray controls. Use **View screen** for a preview; use the commands below to place a normal window on the agent screen.
 
 Windows requests elevation only when enabling or disabling the driver. Viewing, listing, capture and placement run as your ordinary Windows user. The app does not install a driver, change screen resolutions, or start a remote server.
@@ -83,7 +83,7 @@ CI builds on Windows and runs the non-UI checks. See [validation](docs/validatio
 
 ## Privacy and lifecycle
 
-The tray and native input helper have no network listener, telemetry, credential store or model connection. Optional CUA uses a local named pipe; the SideScreen supervisor turns CUA child-process telemetry off. The Muse adapter uses the existing authenticated broker and adds no listener. Window titles/screenshots can contain private information; command output goes to the caller. Logs, short-lived observation records and CUA PNGs remain under `%LOCALAPPDATA%\SideScreen`, outside the checkout. Native helpers have a 15-second outer timeout and CUA helpers a 30-second outer timeout. Retained CUA PNGs require user cleanup. Nothing is uploaded by the tray app.
+The tray and native input helper have no network listener, telemetry, credential store or model connection. Optional CUA uses a local named pipe; the SideScreen supervisor turns CUA child-process telemetry off. The Muse adapter uses the existing authenticated broker and adds no listener. Window titles/screenshots can contain private information; command output goes to the caller. Logs, short-lived observation records and CUA PNGs remain under `%USERPROFILE%\AgentTools\SideScreen\state`, outside the checkout. Native helpers have a 15-second outer timeout and CUA helpers a 30-second outer timeout. Retained CUA PNGs require user cleanup. Nothing is uploaded by the tray app.
 
 The tray app starts only when launched. To start it at sign-in, put a shortcut to `SideScreen.exe` in your own `shell:startup` folder. Driver enabled/disabled state is managed by Windows and can persist across restarts. Closing the tray app does not disable the display. No automatic topology restoration or input isolation is promised.
 
