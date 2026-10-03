@@ -1,5 +1,28 @@
 # Release validation
 
+Version 0.5 was built October 3, 2026 with CUA Driver 0.31.0. The non-UI suite
+passed 26 checks, the Muse adapter passed 12, and the CUA suite passed 61 live
+checks. The installed Muse Link proxy passed 42 additional end-to-end checks:
+native/WPF control invocation, calibrated software-pointer movement and a raw
+canvas click, independent blue preview markers, winapp inspection/search,
+actual CPU YOLOv9/EasyOCR inference, exact-window Office-compatible mutations,
+and stale-token/wrong-display refusals. Real handler counters and document
+readback verified effects. Foreground and keyboard focus stayed intact while
+the human moved the mouse. Office COM providers on this PC are WPS Office;
+actual Microsoft Office installations were not exercised.
+The regular Chrome/native/WPF 32-check channel suite also passed again through
+the installed 1.2 proxy after first attachment. Cold extension attachment changed
+focus and was detected separately; subsequent tested actions preserved it.
+
+SideCursor is an original scoped software-pointer backend with limited app
+support. MouseMux vendor actuation was not enabled or certified. There is no
+new Windows input session, universal isolation, VM, or hosted ChatGPT backend
+integration. CPU visual inference took about 23 seconds including initial model
+load/capture and remains an optional fallback. The human pointer's appearance
+under actual physical movement on SideScreen is still not independently tested;
+the blue agent marker is verified separately. Models and screenshots stayed
+local; neither a remote Muse client nor a reboot was tested.
+
 Version 0.4 was built October 3, 2026 on the same Windows x64 desktop with one
 active MTT virtual display and separately installed CUA 0.31.0. The non-UI
 suite passed 22 checks; native background input passed 37 live checks, CUA

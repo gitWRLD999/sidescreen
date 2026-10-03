@@ -5,6 +5,8 @@ description: Discover the SideScreen virtual Windows monitor and use scoped back
 
 # SideScreen
 
+Muse Link 1.2 optionally adds `winapp_inspect`/`winapp_find` for read-only UI search, exact-window UFO Word/Excel-compatible app APIs, local CPU `omniparser_observe`, and free `sidecursor_move`/`sidecursor_click`. Prefer regular Chrome DOM and semantic input for speed. Read `docs/sidecursor.md` before pointer use: it requires a fresh screenshot plus accessibility tree and corroborated capture transform, consumes one observation, and verifies focus. It cannot provide universal isolation. The preview's blue Agent marker is independent of the human cursor. `mousemux_status` only probes vendor connectivity; it does not enable unverified vendor actions.
+
 Use the installed SideScreen `agent.ps1` script. Locate it from `SIDESCREEN_HOME` when set, then `%USERPROFILE%\AgentTools\SideScreen\agent.ps1`, then the legacy `%LOCALAPPDATA%\SideScreenTools\agent.ps1`. The shared user path avoids packaged AppData redirection differences.
 
 Call `-Action Status` before acting. The `agentScreen` object supplies a current display ID, device name and bounds; `available=false` means stop and report the display condition. Windows display numbers can change after a topology change. Avoid guessing coordinates or treating a screenshot of the primary display as the agent screen.

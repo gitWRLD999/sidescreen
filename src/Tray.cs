@@ -13,7 +13,7 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("SideScreen")]
 [assembly: AssemblyProduct("SideScreen")]
 [assembly: AssemblyDescription("On-demand virtual display tray control")]
-[assembly: AssemblyVersion("0.4.0.0")]
+[assembly: AssemblyVersion("0.5.0.0")]
 
 internal static class Program {
     internal static void Log(string message) {
@@ -28,7 +28,7 @@ internal static class Program {
         using(var mutex = new Mutex(true, "Local\\SideScreen.Tray", out first)) {
             using(var openSignal=new EventWaitHandle(false,EventResetMode.AutoReset,"Local\\SideScreen.Tray.Open")) {
                 if(!first) { openSignal.Set(); return; }
-                Log("Started version 0.4.0; process "+Process.GetCurrentProcess().Id);
+                Log("Started version 0.5.0; process "+Process.GetCurrentProcess().Id);
                 AppDomain.CurrentDomain.UnhandledException+=delegate(object sender,UnhandledExceptionEventArgs e) { Log("Unhandled exception: "+e.ExceptionObject); };
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);

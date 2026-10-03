@@ -26,6 +26,8 @@ namespace SideScreen {
         public uint ProcessId;
         public Rectangle Bounds;
         public int ImageWidth, ImageHeight;
+        public bool HasCaptureTransform;
+        public double CaptureOriginX,CaptureOriginY,CaptureScaleX,CaptureScaleY;
         public Dictionary<string,object>[] Elements;
         public ElementInfo[] NativeElements;
     }
@@ -166,6 +168,21 @@ namespace SideScreen {
             }
             if(request.IncludeScreenshot) {
                 using(var image=Image.FromFile(observation.ScreenshotPath)){observation.ImageWidth=image.Width;observation.ImageHeight=image.Height;}
+                // Bind image pixels to physical pixels from a corroborated CUA/UIA
+                // anchor. GetWindowRect includes invisible DWM borders and cannot
+                // safely substitute for the actual capture origin/scale.
+                foreach(var e in observation.Elements) {
+                    var match=NativeMatch(e,observation.NativeElements);
+                    var frame=e.ContainsKey("frame")?Object(e["frame"]):null;
+                    var imageFrame=e.ContainsKey("screenshot_frame")?Object(e["screenshot_frame"]):null;
+                    if(match==null||frame==null||imageFrame==null)continue;
+                    double w=Convert.ToDouble(frame["w"]),h=Convert.ToDouble(frame["h"]),iw=Convert.ToDouble(imageFrame["w"]),ih=Convert.ToDouble(imageFrame["h"]);
+                    if(w<=0||h<=0||iw<=0||ih<=0||Math.Abs(Convert.ToDouble(frame["x"])-match.Bounds.X)>2||Math.Abs(Convert.ToDouble(frame["y"])-match.Bounds.Y)>2)continue;
+                    observation.CaptureScaleX=w/iw;observation.CaptureScaleY=h/ih;
+                    observation.CaptureOriginX=Convert.ToDouble(frame["x"])-Convert.ToDouble(imageFrame["x"])*observation.CaptureScaleX;
+                    observation.CaptureOriginY=Convert.ToDouble(frame["y"])-Convert.ToDouble(imageFrame["y"])*observation.CaptureScaleY;
+                    observation.HasCaptureTransform=true;break;
+                }
             }
             var current=BackgroundInput.Scope(window.Handle,request.ExpectedDisplayId);
             if(current.ProcessId!=window.ProcessId || current.Bounds!=window.Bounds)throw new InvalidOperationException("Window changed during observation; observe again.");
@@ -180,6 +197,23 @@ namespace SideScreen {
             if(observation.ExpiresUtcTicks<DateTime.UtcNow.Ticks || observation.DisplayId!=request.ExpectedDisplayId || observation.WindowHandle!=request.WindowHandle)throw new InvalidOperationException("Expired or mismatched observation.");
             var window=BackgroundInput.Scope(request.WindowHandle,request.ExpectedDisplayId);
             if(window.ProcessId!=observation.ProcessId || Process.GetProcessById((int)window.ProcessId).StartTime.ToUniversalTime().Ticks!=observation.ProcessStartTicks || window.Bounds!=observation.Bounds)throw new InvalidOperationException("Window process/geometry changed; observe again.");
+            if(request.Action=="SideCursorAct") {
+                var p=request.Arguments??new Dictionary<string,object>();
+                if(p.Keys.Any(k=>!new[]{"x","y","button"}.Contains(k)) || !p.ContainsKey("x") || !p.ContainsKey("y") || (request.Tool!="move" && request.Tool!="click"))throw new InvalidOperationException("Invalid scoped pointer request.");
+                double px=Convert.ToDouble(p["x"]),py=Convert.ToDouble(p["y"]);
+                var point=SideCursor.ResolvePoint(observation,window,px,py);
+                if(request.Tool=="click" && (Text(p,"button")??"left")=="left") {
+                    var hits=observation.Elements.Where(e=> {
+                        var f=e.ContainsKey("screenshot_frame")?Object(e["screenshot_frame"]):null;
+                        string role=Text(e,"role");
+                        return f!=null && (role=="Button"||role=="CheckBox"||role=="RadioButton"||role=="ListItem") && Convert.ToBoolean(e["enabled"]) && px>=Convert.ToDouble(f["x"]) && py>=Convert.ToDouble(f["y"]) && px<Convert.ToDouble(f["x"])+Convert.ToDouble(f["w"]) && py<Convert.ToDouble(f["y"])+Convert.ToDouble(f["h"]);
+                    }).ToArray();
+                    if(hits.Length==1) {
+                        SideCursor.Mark(observation,point.X,point.Y);
+                        request.Tool="click";request.Arguments=new Dictionary<string,object>{{"element_token",Text(hits[0],"element_token")}};
+                    } else return SideCursor.Dispatch(observation,window,px,py,true,Text(p,"button")??"left");
+                }else return SideCursor.Dispatch(observation,window,px,py,request.Tool=="click",Text(p,"button")??"left");
+            }
             var args=request.Arguments??new Dictionary<string,object>();ValidateArguments(request.Tool,args);
             Dictionary<string,object> element=null;
             if(args.ContainsKey("element_token")) {
@@ -223,6 +257,10 @@ namespace SideScreen {
             return new {ok=ok,stop=!ok,dispatched=dispatched,backend="cua-driver",deliveryMode="background",universalIsolation=false,driver=result,focus=focus,error=error??(!focus.Preserved?"Foreground or keyboard focus changed; stop and observe.":null)};
         }
         public static object Execute(CuaRequest request) {
+            if(request.Action=="Scope") {
+                var w=BackgroundInput.Scope(request.WindowHandle,request.ExpectedDisplayId);
+                return new {ok=true,windowHandle=w.Handle,processId=w.ProcessId,processStartTicks=Process.GetProcessById((int)w.ProcessId).StartTime.ToUniversalTime().Ticks.ToString(),bounds=w.Bounds,displayId=request.ExpectedDisplayId};
+            }
             if(request.Action=="FocusBegin") {
                 string id=Guid.NewGuid().ToString("N");guards.Add(id,new InputGuard(0));return new {ok=true,guardId=id};
             }
@@ -237,11 +275,12 @@ namespace SideScreen {
                 if(virtualDisplays.Length==1){var d=virtualDisplays[0];screen=new {id=Layout.Id(d),deviceName=d.GdiName,x=d.X,y=d.Y,width=d.Width,height=d.Height};}
                 bool ready=false;string healthError=null;
                 if(File.Exists(Binary)){try{var probe=Driver("list_windows",new Dictionary<string,object>{{"pid",Process.GetCurrentProcess().Id}},5000);ready=!Failed(probe);if(!ready)healthError="CUA refused readiness probe";}catch(Exception e){healthError=e.Message;}}
-                return new {ok=true,available=safeLayout,nonOverlapping=safeLayout,agentScreen=screen,installed=File.Exists(Binary),ready=ready,healthError=healthError,binary=Binary,socket=Socket,inputIsolation=false,deliveryMode="background",tools=new[]{"click","set_value","type_text","scroll","press_key","hotkey"},version="0.4.0"};
+                return new {ok=true,available=safeLayout,nonOverlapping=safeLayout,agentScreen=screen,installed=File.Exists(Binary),ready=ready,healthError=healthError,binary=Binary,socket=Socket,inputIsolation=false,deliveryMode="background",tools=new[]{"click","set_value","type_text","scroll","press_key","hotkey"},version="0.5.0"};
             }
             if(request.Action=="Windows")return new {ok=true,windows=Windows.ListOnAgentDisplay()};
             if(request.Action=="CuaObserve")return Observe(request);
             if(request.Action=="CuaAct")return Act(request);
+            if(request.Action=="SideCursorAct")return Act(request);
             throw new InvalidOperationException("Unknown SideScreen CUA action.");
         }
         static object ExecuteLocked(CuaRequest request) {
@@ -252,7 +291,7 @@ namespace SideScreen {
                     if(!held)throw new InvalidOperationException("Another SideScreen action is running.");
                     try{return Execute(request);}finally {
                         Guid id;
-                        if(request!=null && request.Action=="CuaAct" && Guid.TryParseExact(request.ObservationId,"N",out id)) {
+                        if(request!=null && (request.Action=="CuaAct" || request.Action=="SideCursorAct") && Guid.TryParseExact(request.ObservationId,"N",out id)) {
                             try{Driver("end_session",new Dictionary<string,object>{{"session","sidescreen-"+id.ToString("N")}},1500);}catch{}
                         }
                     }

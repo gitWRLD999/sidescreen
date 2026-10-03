@@ -45,6 +45,13 @@ class Tests {
         Reject(()=>CuaBridge.ValidateArguments("type_text",new Dictionary<string,object>{{"text","hello"}}),"CUA refuses unbound typing");
         Reject(()=>CuaBridge.ValidateArguments("click",new Dictionary<string,object>{{"element_token","token"},{"x",1},{"y",2}}),"CUA refuses mixed grounding");
         Reject(()=>CuaBridge.ValidateArguments("set_value",new Dictionary<string,object>{{"element_token","token"},{"value","a\0b"}}),"CUA refuses NUL text");
+        var capture=new CuaObservation{ScreenshotPath="test.png",ImageWidth=584,ImageHeight=391,HasCaptureTransform=true,CaptureOriginX=-1832,CaptureOriginY=81,CaptureScaleX=1,CaptureScaleY=1};
+        var pointerWindow=new WindowRecord{Bounds=new Rectangle(-1840,80,600,400)};
+        Check(SideCursor.ResolvePoint(capture,pointerWindow,25,105)==new Point(-1807,186),"Pointer uses capture transform rather than invisible window borders");
+        Reject(()=>SideCursor.ResolvePoint(capture,pointerWindow,-1,10),"Pointer refuses negative capture pixels");
+        Reject(()=>SideCursor.ResolvePoint(capture,pointerWindow,Double.NaN,10),"Pointer refuses non-finite pixels");
+        capture.HasCaptureTransform=false;
+        Reject(()=>SideCursor.ResolvePoint(capture,pointerWindow,25,105),"Pointer refuses uncalibrated captures");
         if(args.Contains("--live-placement")) {
             using(var form=new PassiveForm{Text="SideScreen disposable placement test",Width=320,Height=100,ShowInTaskbar=false,StartPosition=FormStartPosition.Manual,Location=new Point(100,100)}) {
                 form.Show();Application.DoEvents();

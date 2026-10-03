@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
+using System.IO;
+using System.Web.Script.Serialization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
@@ -187,6 +189,24 @@ internal sealed class VirtualScreenViewer : Form {
             try{DrawIconEx(dc,cursor.Position.X-area.X-icon.XHotspot,cursor.Position.Y-area.Y-icon.YHotspot,copy,0,0,0,IntPtr.Zero,3);}finally{graphics.ReleaseHdc(dc);}
         }finally {if(icon.Mask!=IntPtr.Zero)DeleteObject(icon.Mask);if(icon.Color!=IntPtr.Zero)DeleteObject(icon.Color);DestroyIcon(copy);}
     }
+    sealed class AgentPointer {public int x{get;set;}public int y{get;set;}public long windowHandle{get;set;}public string displayId{get;set;}public string expiresUtc{get;set;}}
+    static void DrawAgentCursor(Graphics graphics,Rectangle area) {
+        try {
+            string file=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),"AgentTools","SideScreen","state","agent-cursor.json");
+            if(!File.Exists(file))return;
+            var p=new JavaScriptSerializer().Deserialize<AgentPointer>(File.ReadAllText(file));
+            var display=DisplayAudit.Read().SingleOrDefault(d=>d.IsVirtualMonitor);
+            if(p==null||display==null||p.displayId!=SideScreen.Layout.Id(display)||DateTime.Parse(p.expiresUtc).ToUniversalTime()<DateTime.UtcNow||!area.Contains(p.x,p.y))return;
+            var window=SideScreen.Windows.List().SingleOrDefault(w=>w.Handle==p.windowHandle);
+            if(window==null||!window.Bounds.Contains(p.x,p.y)||!area.Contains(window.Bounds))return;
+            int x=p.x-area.X,y=p.y-area.Y;
+            using(var pen=new Pen(Color.DeepSkyBlue,3)) {
+                graphics.DrawEllipse(pen,x-7,y-7,14,14);
+                graphics.DrawLine(pen,x-12,y,x+12,y);graphics.DrawLine(pen,x,y-12,x,y+12);
+            }
+            using(var font=new Font("Segoe UI",9,FontStyle.Bold))graphics.DrawString("Agent",font,Brushes.DeepSkyBlue,x+12,y+8);
+        }catch { /* Expired/partially written markers must not interrupt preview. */ }
+    }
     readonly PreviewSurface surface;
     readonly ListView windows;
     readonly Label status;
@@ -245,6 +265,7 @@ internal sealed class VirtualScreenViewer : Form {
             using(var g=Graphics.FromImage(frame)) {
                 CaptureScreen(g,area.Value);
                 DrawHumanCursor(g,area.Value);
+                DrawAgentCursor(g,area.Value);
             }
             surface.Frame=frame; surface.Message=""; surface.Invalidate();
             status.Text="Live view  ·  "+area.Value.Width+" × "+area.Value.Height+"  ·  "+DateTime.Now.ToString("HH:mm:ss.fff")+"  ·  Human cursor included";
