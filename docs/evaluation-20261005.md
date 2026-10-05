@@ -39,12 +39,14 @@ was run. This evaluation does not establish parity with built-in computer use.
 | CUA live | 61 | Native/WPF actual handlers and background delivery |
 | Virtual input live | 118 | x64/x86 click, drag, wheel, keyboard and focus blocking |
 | Supervisor recovery | 7 | Fake status timeout, retry, owned-daemon restart and pause |
-| Independent MCP acceptance | 30 | Screenshot, Unicode, private text, kernel leases, EOF, cancellation and stop |
-| Independent router/scope unit tests | 5 | Lease refusal, close, reused handle, moved window and backend replacement |
+| Independent MCP acceptance | 33 | Screenshot, Unicode, private text, kernel leases, native leased macros, slow acknowledgement, EOF, cancellation and stop |
+| Independent router/scope unit tests | 7 | Lease refusal, close, reused handle, moved window and backend replacement |
 | Separate Muse companion tests | 44 | Its existing tools plus optional native-first compatibility |
 
-The 30-check acceptance passed both the Node server and the packaged PowerShell
-launcher with invalid Muse paths deliberately supplied. Cross-process leases
+The initial 30-check acceptance passed both the Node server and the packaged
+PowerShell launcher with invalid Muse paths deliberately supplied. The final
+33-check launcher runs, including the installed plugin cache, also verify native leased macros, duplicate macro
+refusal and a 1.5-second handler acknowledgement. Cross-process leases
 refused a second connection and released after disconnect/cancellation. Native
 steps worked with a missing CUA executable. Manifest/MCP schemas and runtime
 assets validated against the portable plugin schema. No existing human window
@@ -52,9 +54,17 @@ was moved and no real account sign-in was attempted.
 
 One intermediate acceptance run changed text and counter but did not reach the
 expected checkbox state. That run lacked a saved batch receipt, so its cause
-was not established. Receipt capture was added; fresh independent and launcher
-runs passed all checks without changing the action dispatch path. This remains
-an observed intermittent failure, not evidence of perfect reliability.
+was not established. Receipt capture was added. Later traced runs found a
+message acknowledgement failure after the counter had already changed, with
+focus preserved. The native message wait increased from one to three seconds,
+matching the virtual adapter's existing bound. A deliberately delayed handler
+now passes with one dispatch and no activation. This improves acknowledgements,
+but does not eliminate the possibility of unknown outcomes or prove perfect
+reliability. No failed input was automatically replayed.
+
+Microsoft documents that a failed/timed-out `SendMessageTimeout` return does not
+always supply a last error; diagnostics now clear and report that value. See
+[SendMessageTimeoutW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendmessagetimeoutw).
 
 Earlier registered-tool trials also verified 24 actual native/WPF actions with
 no foreground activation. The human cursor moved during some actions; cursor

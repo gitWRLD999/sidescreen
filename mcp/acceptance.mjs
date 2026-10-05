@@ -71,6 +71,8 @@ try {
   const noCua=await call(offline,'sidescreen_status',{});check(!noCua.ready&&noCua.nativeObservation,'native capability survives missing CUA');
   const native=await call(offline,'sidescreen_steps',{...target,steps:[{selector:{label:'Increment counter',role:'Button'},tool:'click',arguments:{}}]});
   check(native.ok&&read().clicks===3&&native.observation.timing.driverMs===0,'native task works without CUA daemon');
+  const slow=await call(offline,'sidescreen_steps',{...target,steps:[{selector:{label:'Slow acknowledgement',role:'Button'},tool:'click',arguments:{}}]});
+  check(slow.ok&&read().slowClicks===1&&slow.receipts[0].focus.Preserved,'delayed handler acknowledgement is delivered exactly once without activation');
   const lease=await call(a,'sideuser_open',{...target,label:'Disconnect'});check(lease.ok,'disconnect fixture lease acquired');
   await transports[0].close();await sleep(400);
   const recovered=await call(b,'sideuser_open',{...target,label:'Recovered'});check(recovered.ok,'kernel lease released after transport disconnect');
