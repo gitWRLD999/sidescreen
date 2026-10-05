@@ -14,15 +14,17 @@ app used alternating arm/app order. Real app event handlers wrote the oracle.
 
 | Fixture | A median | B median | A maximum | B maximum |
 |---|---:|---:|---:|---:|
-| Native controls | 4,220 ms | 3,065 ms | 6,230 ms | 5,469 ms |
-| WPF controls | 5,170 ms | 4,237 ms | 8,474 ms | 8,364 ms |
+| Native controls | 4,294 ms | 3,101.5 ms | 6,230 ms | 5,469 ms |
+| WPF controls | 5,447.5 ms | 4,600 ms | 8,474 ms | 8,364 ms |
 
 All 24 tasks / 72 actions matched actual text, counter and checkbox state.
 No action reported foreground changes or target activation. The native median
-improved 27.4%. WPF's 18.0% sample difference is noisy and not a performance
+improved 27.8%. WPF's 15.6% sample difference is noisy and not a performance
 guarantee. With six samples, the recorded empirical p95 is just the maximum;
-it is not a reliable tail-latency estimate. Timings precede the final lease and
-cancellation additions; later functional checks covered those additions.
+it is not a reliable tail-latency estimate. Medians use the average of the two
+middle samples; the initial harness's nearest-rank p50 has been corrected.
+Timings precede final lease/cancellation additions and the acknowledgement wait
+change; later functional checks covered those additions.
 
 `node tests/benchmark.mjs <private-output-directory> 6` reproduces this comparison.
 The fixture must be built and CUA must already be available. Neither arm is

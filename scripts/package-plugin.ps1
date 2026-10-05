@@ -27,7 +27,7 @@ $marketZip=Join-Path $output 'SideScreen-Desktop-Marketplace-1.0.0.zip'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 if(Test-Path -LiteralPath $marketZip){Remove-Item -LiteralPath $marketZip}
 [IO.Compression.ZipFile]::CreateFromDirectory($market,$marketZip)
-$hashes=@($zip,$marketZip) | Get-FileHash -Algorithm SHA256 | ForEach-Object { $_.Hash.ToLowerInvariant()+'  '+[IO.Path]::GetFileName($_.Path) }
+$hashes=Get-FileHash -LiteralPath @($zip,$marketZip) -Algorithm SHA256 | ForEach-Object { $_.Hash.ToLowerInvariant()+'  '+[IO.Path]::GetFileName($_.Path) }
 [IO.File]::WriteAllLines((Join-Path $output 'SHA256SUMS.txt'),$hashes,(New-Object System.Text.UTF8Encoding($false)))
 Get-Item -LiteralPath $zip,$marketZip | Select-Object FullName,Length
 # Staging folders are left intact for review; no recursive deletion is needed.

@@ -46,10 +46,11 @@ try {
     assert(result.ok&&effectVerified&&focus.length===3&&focus.every(x=>x.preserved&&!x.targetActivated),'Effect or isolation failure; no automatic replay');
   }
   const percentile=(v,p)=>[...v].sort((a,b)=>a-b)[Math.ceil(v.length*p)-1];
+  const median=v=>{const sorted=[...v].sort((a,b)=>a-b),middle=Math.floor(sorted.length/2);return sorted.length%2?sorted[middle]:(sorted[middle-1]+sorted[middle])/2;};
   const summary=[];
   for(const fixture of ['native','wpf'])for(const arm of ['A-CUA-first','B-native-first']) {
     const matching=rows.filter(r=>r.fixture===fixture&&r.arm===arm),latencies=matching.map(r=>r.elapsedMs);
-    summary.push({fixture,arm,n:latencies.length,p50Ms:percentile(latencies,.5),p95Ms:percentile(latencies,.95),success:matching.filter(r=>r.ok&&r.effectVerified).length,foregroundChanges:matching.reduce((n,r)=>n+r.focus.reduce((a,f)=>a+(f.foregroundChanges||0),0),0)});
+    summary.push({fixture,arm,n:latencies.length,p50Ms:median(latencies),p95Ms:percentile(latencies,.95),success:matching.filter(r=>r.ok&&r.effectVerified).length,foregroundChanges:matching.reduce((n,r)=>n+r.focus.reduce((a,f)=>a+(f.foregroundChanges||0),0),0)});
   }
   writeFileSync(path.join(artifacts,'summary.json'),JSON.stringify(summary,null,2)+'\n');console.log(JSON.stringify({summary}));
 }finally{for(const engine of engines)engine.close();for(const child of children)child.kill();}
