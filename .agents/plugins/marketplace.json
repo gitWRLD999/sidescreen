@@ -1,0 +1,12 @@
+{
+  "name": "sidescreen-local",
+  "interface": {"displayName": "SideScreen"},
+  "plugins": [
+    {
+      "name": "sidescreen",
+      "source": {"source": "local", "path": "./plugins/sidescreen"},
+      "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+      "category": "Productivity"
+    }
+  ]
+}

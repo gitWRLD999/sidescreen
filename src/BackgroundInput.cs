@@ -134,7 +134,13 @@ namespace SideScreen {
         static IntPtr ListParent(AutomationElement element){var parent=TreeWalker.ControlViewWalker.GetParent(element);return parent==null?IntPtr.Zero:Native(parent);}
         static string Runtime(AutomationElement element){return String.Join(".",element.GetRuntimeId().Select(i=>i.ToString()).ToArray());}
         public static bool Inside(Rectangle window,Rectangle display) {return window.Width>0 && window.Height>0 && display.Contains(window);}
+        public static string LeaseName(long handle) {return "Local\\SideScreen.WindowLease."+Process.GetCurrentProcess().SessionId+"."+handle;}
         public static WindowRecord Scope(long handle,string expected) {
+            using(var lease=new Mutex(false,LeaseName(handle))) {
+                bool held=false;try{try{held=lease.WaitOne(0);}catch(AbandonedMutexException){held=true;}
+                    if(!held)throw new InvalidOperationException("Window is leased by another SideScreen connection.");
+                }finally{if(held)lease.ReleaseMutex();}
+            }
             if(String.IsNullOrEmpty(expected))throw new InvalidOperationException("ExpectedDisplayId is required from fresh Status.");
             var displays=DisplayAudit.Read();var agent=Layout.Select(displays,true);
             if(Layout.Id(agent)!=expected)throw new InvalidOperationException("Agent display changed; query Status again.");
