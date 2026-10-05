@@ -9,6 +9,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
       - name: Build pinned original native adapters
         shell: powershell
         run: .\native\prepare-native.ps1
@@ -25,3 +28,19 @@ jobs:
           }
       - name: Verify Muse adapter
         run: node tests/muse-adapter.mjs
+      - name: Build independent desktop plugin
+        working-directory: mcp
+        run: |
+          npm ci
+          npm test
+          npm run build
+          node validate-plugin.mjs
+      - name: Package desktop plugin
+        shell: powershell
+        run: .\scripts\package-plugin.ps1 -OutputDirectory .\work\release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sidescreen-desktop-plugin
+          path: |
+            work/release/*.zip
+            work/release/SHA256SUMS.txt

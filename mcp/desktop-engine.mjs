@@ -3,7 +3,6 @@ import {readFileSync, existsSync} from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {createInterface} from 'node:readline';
-import {runJson} from './process.mjs';
 
 const target={window_handle:{type:'integer',minimum:1},expected_display_id:{type:'string',minLength:1}};
 const selector={type:'object',properties:{label:{type:'string'},role:{type:'string'}},additionalProperties:false};
@@ -53,9 +52,11 @@ export function resolveSideScreenDirectory(explicit,env=process.env) {
 }
 export function createSideScreenEngine({directory,run,env={},nativeFirst='auto'}={}) {
   let nativeReady=nativeFirst===true;
+  let closed=false;
   let child,lines,pending,errors='';
   function stop(error) {pending?.reject(error);pending=undefined;lines?.close();lines=undefined;child?.kill();child=undefined;}
   async function executeRaw(request) {
+    if(closed)throw Error('SideScreen connection closed; input outcome may be unknown. Do not replay.');
     if(run)return run(request);
     if(!child) {
       child=spawn(path.join(resolveSideScreenDirectory(directory),'SideScreen.Cua.exe'),['--server'],{windowsHide:true,env:{...process.env,...env},stdio:['pipe','pipe','pipe']});
@@ -110,8 +111,8 @@ export function createSideScreenEngine({directory,run,env={},nativeFirst='auto'}
       for(const step of args.steps)if(Object.keys(step.arguments).some(k=>['element_token','x','y'].includes(k)))throw Error('Steps resolve their own fresh token; pixel/token overrides refused');
       const receipts=[];
       let usedNative=false;
-      let scope;
-      const sameBatchWindow=before=>{if(!before.scope)return true;if(!scope)scope=before.scope;return JSON.stringify(scope)===JSON.stringify(before.scope);};
+      let scope=request.expectedScope;
+      const sameBatchWindow=before=>{if(!before.scope)return !scope;if(!scope)scope=before.scope;return ['windowHandle','processId','processStartTicks','displayId'].every(k=>scope[k]===before.scope[k])&&JSON.stringify(scope.bounds)===JSON.stringify(before.scope.bounds);};
       for(const step of args.steps) {
         let before=nativeReady?await nativeObserve(args):await observe(args);
         if(!before.ok){result={...before,completed:receipts.length,receipts};break;}
@@ -129,7 +130,7 @@ export function createSideScreenEngine({directory,run,env={},nativeFirst='auto'}
         receipts.push(receipt);
         if(!receipt.ok||receipt.stop){result={ok:false,stop:true,completed:receipts.length,receipts};break;}
       }
-      if(!result) {const observation=usedNative?await nativeObserve(args):await observe(args);result={ok:observation.ok,completed:receipts.length,receipts,observation};}
+      if(!result) {const observation=usedNative?await nativeObserve(args):await observe(args);result={ok:observation.ok&&sameBatchWindow(observation),completed:receipts.length,receipts,observation};if(!result.ok)Object.assign(result,{stop:true,error:observation.error||'Window changed during final verification'});}
     } else {
       result=await execute(translated);
       if(request.tool==='sidescreen_status' && nativeFirst==='auto')nativeReady=result.nativeObservation===true;
@@ -141,7 +142,7 @@ export function createSideScreenEngine({directory,run,env={},nativeFirst='auto'}
   };
   handler.guard=async action=>{
     const before=await execute({Action:'FocusBegin'});
-    if(!before.ok)throw Error(before.error||'Cannot monitor browser focus');
+    if(!before.ok)throw Error(before.error||'Cannot monitor foreground focus');
     let result,error;
     try{result=await action();}catch(e){error=e;}
     const after=await execute({Action:'FocusEnd',ObservationId:before.guardId});
@@ -151,9 +152,10 @@ export function createSideScreenEngine({directory,run,env={},nativeFirst='auto'}
   };
   // Private broker extension boundary; not an agent tool or global input escape.
   handler.scope=args=>execute({Action:'Scope',WindowHandle:args.window_handle,ExpectedDisplayId:args.expected_display_id});
-  handler.chromeShield=binding=>runJson({command:path.join(resolveSideScreenDirectory(directory),'SideScreen.ChromeFocus.exe'),env},{WindowHandle:binding.target.window_handle,ExpectedDisplayId:binding.target.expected_display_id,ExpectedProcessId:binding.scoped.processId,ExpectedProcessStartTicks:binding.scoped.processStartTicks});
+  handler.lease=args=>execute({Action:'LeaseWindow',WindowHandle:args.window_handle,ExpectedDisplayId:args.expected_display_id});
+  handler.unlease=handle=>execute({Action:'UnleaseWindow',WindowHandle:handle});
   handler.pointer=args=>execute({Action:'SideCursorAct',WindowHandle:args.window_handle,ExpectedDisplayId:args.expected_display_id,ObservationId:args.observation_id,Tool:args.operation,Arguments:{x:args.x,y:args.y,button:args.button||'left'}});
   handler.virtual=args=>execute({Action:'VirtualAct',WindowHandle:args.window_handle,ExpectedDisplayId:args.expected_display_id,ObservationId:args.observation_id,Tool:args.operation,Arguments:args.arguments,CursorId:args.cursor_id,CursorLabel:args.label});
   handler.release=(scope,cursorId)=>execute({Action:'VirtualRelease',WindowHandle:scope.windowHandle,ExpectedDisplayId:scope.displayId,ExpectedProcessId:scope.processId,ExpectedProcessStartTicks:scope.processStartTicks,CursorId:cursorId});
-  handler.close=()=>stop(Error('SideScreen shutting down'));return handler;
+  handler.close=()=>{closed=true;stop(Error('SideScreen shutting down; input outcome may be unknown. Do not replay.'));};return handler;
 }

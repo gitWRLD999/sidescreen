@@ -127,14 +127,23 @@ namespace SideScreen {
         [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true,EntryPoint="SendMessageTimeoutW")] static extern IntPtr ReadText(IntPtr h,uint message,IntPtr w,System.Text.StringBuilder text,uint flags,uint timeout,out IntPtr result);
         static string Class(IntPtr h){var value=new System.Text.StringBuilder(256);GetClassName(h,value,value.Capacity);return value.ToString();}
         static bool Kind(IntPtr h,string kind){var name=Class(h);return name.Equals(kind,StringComparison.OrdinalIgnoreCase)||name.StartsWith("WindowsForms10."+kind+".",StringComparison.OrdinalIgnoreCase);}
-        static long Send(IntPtr h,uint message,long w,long l){IntPtr result;if(SendMessageTimeout(h,message,new IntPtr(w),new IntPtr(l),2,1000,out result)==IntPtr.Zero)throw new InvalidOperationException("Target message failed/timed out; outcome unknown.");return result.ToInt64();}
+        [DllImport("kernel32.dll",EntryPoint="SetLastError")] static extern void ClearNativeError(uint error);
+        // A handler may finish its effect before acknowledging the message.
+        // Match the virtual adapter's bounded wait, without retrying dispatch.
+        static long Send(IntPtr h,uint message,long w,long l){IntPtr result;ClearNativeError(0);if(SendMessageTimeout(h,message,new IntPtr(w),new IntPtr(l),2,3000,out result)==IntPtr.Zero)throw new InvalidOperationException("Target message failed/timed out (Win32 "+Marshal.GetLastWin32Error()+"); outcome unknown.");return result.ToInt64();}
         static string Read(IntPtr h,uint message,int capacity,long w){var value=new System.Text.StringBuilder(capacity);IntPtr result;if(ReadText(h,message,new IntPtr(w),value,2,1000,out result)==IntPtr.Zero)throw new InvalidOperationException("Target read failed/timed out.");return value.ToString();}
         static void Notify(IntPtr h,int notification){Send(GetParent(h),0x111,(long)(ushort)GetDlgCtrlID(h)|((long)(ushort)notification<<16),h.ToInt64());}
         static IntPtr Native(AutomationElement element){return new IntPtr(element.Current.NativeWindowHandle);}
         static IntPtr ListParent(AutomationElement element){var parent=TreeWalker.ControlViewWalker.GetParent(element);return parent==null?IntPtr.Zero:Native(parent);}
         static string Runtime(AutomationElement element){return String.Join(".",element.GetRuntimeId().Select(i=>i.ToString()).ToArray());}
         public static bool Inside(Rectangle window,Rectangle display) {return window.Width>0 && window.Height>0 && display.Contains(window);}
+        public static string LeaseName(long handle) {return "Local\\SideScreen.WindowLease."+Process.GetCurrentProcess().SessionId+"."+handle;}
         public static WindowRecord Scope(long handle,string expected) {
+            using(var lease=new Mutex(false,LeaseName(handle))) {
+                bool held=false;try{try{held=lease.WaitOne(0);}catch(AbandonedMutexException){held=true;}
+                    if(!held)throw new InvalidOperationException("Window is leased by another SideScreen connection.");
+                }finally{if(held)lease.ReleaseMutex();}
+            }
             if(String.IsNullOrEmpty(expected))throw new InvalidOperationException("ExpectedDisplayId is required from fresh Status.");
             var displays=DisplayAudit.Read();var agent=Layout.Select(displays,true);
             if(Layout.Id(agent)!=expected)throw new InvalidOperationException("Agent display changed; query Status again.");

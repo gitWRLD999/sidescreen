@@ -5,6 +5,9 @@ work/
 *.zip
 tray-status.txt
 last-operation.log
+mcp/node_modules/
+plugins/sidescreen/runtime/server.cjs
+plugins/sidescreen/native/
 .vs/
 bin/
 obj/

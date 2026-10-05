@@ -1,0 +1,94 @@
+import {Client} from '@modelcontextprotocol/sdk/client/index.js';
+import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
+import {spawn,execFileSync} from 'node:child_process';
+import {readFileSync,writeFileSync,existsSync,mkdirSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+
+const root=fileURLToPath(new URL('../',import.meta.url)),dist=path.join(root,'dist');
+const output=path.resolve(process.argv[2]||path.join(root,'work','plugin-acceptance'));
+const launcher=process.argv[3]?path.resolve(process.argv[3]):null;
+mkdirSync(output,{recursive:true});
+const oracle=path.join(output,'native-'+crypto.randomUUID()+'.json');
+const child=spawn(path.join(dist,'SideScreen.BackgroundProbe.exe'),[oracle],{windowsHide:true,stdio:'ignore'});
+const clients=[],transports=[],records=[];
+const read=()=>JSON.parse(readFileSync(oracle,'utf8'));
+const decode=r=>JSON.parse(r.content.find(c=>c.type==='text').text);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function check(value,name){assert(value,name);records.push({name,passed:true});}
+async function connect(binary) {
+  const c=new Client({name:'independent-desktop-test',version:'1.0.0'});
+  const env={...process.env,...(binary?{SIDESCREEN_CUA_BINARY:binary}:{}),MUSE_LINK_CONFIG:path.join(output,'does-not-exist.json'),MUSE_LINK_PACKAGE:path.join(output,'does-not-exist')};
+  if(launcher)delete env.SIDESCREEN_HOME;else env.SIDESCREEN_HOME=dist;
+  const t=new StdioClientTransport({command:launcher?'powershell.exe':process.execPath,args:launcher?['-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(launcher,'scripts/start-mcp.ps1')]:[path.join(root,'plugins/sidescreen/runtime/server.cjs')],env,stderr:'inherit'});
+  await c.connect(t);clients.push(c);transports.push(t);return c;
+}
+async function call(c,name,args){const result=decode(await c.callTool({name,arguments:args}));writeFileSync(path.join(output,'receipts.ndjson'),JSON.stringify({tool:name,result})+'\n',{flag:'a'});return result;}
+try {
+  const deadline=Date.now()+10000;while(!existsSync(oracle)&&Date.now()<deadline)await sleep(100);
+  check(existsSync(oracle),'fixture rendered');
+  const a=await connect(),b=await connect();
+  const list=(await a.listTools()).tools;check(list.length===16&&!list.some(t=>/chrome_|muse_|ssh|browser_/.test(t.name)),'desktop-only tool surface');
+  const status=await call(a,'sidescreen_status',{});check(status.available&&status.ready&&status.nativeObservation,'live runtime and native capability');
+  const windows=(await call(a,'sidescreen_windows',{})).windows;
+  const current=windows.find(w=>w.Handle===read().handle);check(!!current,'freshly enumerated SideScreen window');
+  const target={window_handle:current.Handle,expected_display_id:status.agentScreen.id};
+  const captured=await a.callTool({name:'sidescreen_observe',arguments:{...target,include_screenshot:true}});
+  const o=decode(captured),image=captured.content.find(c=>c.type==='image');
+  check(o.ok&&!!image&&o.image.width>0,'scoped screenshot returned through MCP');
+  writeFileSync(path.join(output,'desktop.png'),Buffer.from(image.data,'base64'));
+  let edit=o.state.elements.find(e=>e.label==='Agent text');
+  const text=await call(a,'sidescreen_act_and_observe',{...target,observation_id:o.observationId,tool:'set_value',arguments:{element_token:edit.element_token,value:'Independent desktop café Ω'}});
+  check(text.ok&&read().text==='Independent desktop café Ω','Unicode text actual effect');
+  check(text.receipt.focus.Preserved&&!text.receipt.focus.TargetActivated,'foreground stayed independent');
+  const replay=await call(a,'sidescreen_act',{...target,observation_id:o.observationId,tool:'set_value',arguments:{element_token:edit.element_token,value:'replayed'}});
+  check(!replay.ok&&read().text==='Independent desktop café Ω','consumed observation refused');
+  const wrong=await call(a,'sidescreen_observe',{...target,expected_display_id:'wrong'});check(!wrong.ok,'wrong display refused');
+  const pixels=decode(await a.callTool({name:'sidescreen_observe',arguments:{...target,include_screenshot:true}}));
+  const outside=await call(a,'sidescreen_act',{...target,observation_id:pixels.observationId,tool:'click',arguments:{x:-1,y:0}});check(!outside.ok&&read().clicks===0,'out-of-image pixels refused');
+  const s=await call(a,'sideuser_open',{...target,label:'ChatGPT'});check(s.ok,'connection lease opened');
+  check(!(await call(b,'sideuser_open',{...target,label:'Other'})).ok,'another MCP process refused lease');
+  check(!(await call(b,'sidescreen_observe',target)).ok,'legacy observation cannot cross process lease');
+  const batch=await call(a,'sidescreen_steps',{...target,steps:[{selector:{label:'Agent text',role:'Edit'},tool:'set_value',arguments:{value:'Background desktop task'}},{selector:{label:'Increment counter',role:'Button'},tool:'click',arguments:{}},{selector:{label:'Agent checkbox',role:'CheckBox'},tool:'click',arguments:{}}]});
+  writeFileSync(path.join(output,'batch.json'),JSON.stringify({batch,state:read()},null,2)+'\n');
+  check(batch.ok&&read().text==='Background desktop task'&&read().clicks===1&&read().check,'native task verified inside lease');
+  check(batch.receipts.every(r=>r.focus.Preserved&&!r.focus.TargetActivated),'all leased actions preserved focus');
+  const clip=await call(a,'sideuser_clipboard',{session_id:s.sessionId,text:'Private desktop text'});check(clip.private&&clip.text==='Private desktop text','private session clipboard');
+  const so=await call(a,'sideuser_observe',{session_id:s.sessionId});check(so.ok,'leased window observed');
+  edit=so.state.elements.find(e=>e.label==='Agent text');
+  const paste=await call(a,'sideuser_act',{session_id:s.sessionId,observation_id:so.observationId,operation:'paste',arguments:{element_token:edit.element_token}});
+  check(paste.ok&&read().text==='Private desktop textBackground desktop task','private text reached background Edit at its observed initial caret');
+  check(!(await call(b,'sideuser_observe',{session_id:s.sessionId})).ok,'foreign connection session refused');
+  const macroArgs={session_id:s.sessionId,request_id:'native-task',steps:[{selector:{label:'Agent text',role:'Edit'},operation:'set_value',arguments:{value:'Session native task'}},{selector:{label:'Increment counter',role:'Button'},operation:'invoke',arguments:{}}]};
+  const macro=await call(a,'sideuser_run',macroArgs);
+  check(macro.ok&&macro.receipts.every(r=>r.backend==='native-control-messages')&&read().text==='Session native task'&&read().clicks===2,'leased semantic macro uses verified native fast route');
+  check(!(await call(a,'sideuser_run',macroArgs)).ok&&read().clicks===2,'duplicate leased macro cannot replay');
+  check((await call(a,'sideuser_close',{session_id:s.sessionId})).ok,'lease released normally');
+  const bs=await call(b,'sideuser_open',{...target,label:'Next'});check(bs.ok,'lease can transfer after close');
+  await call(b,'sideuser_close',{session_id:bs.sessionId});
+  const offline=await connect(path.join(output,'missing-cua.exe'));
+  const noCua=await call(offline,'sidescreen_status',{});check(!noCua.ready&&noCua.nativeObservation,'native capability survives missing CUA');
+  const native=await call(offline,'sidescreen_steps',{...target,steps:[{selector:{label:'Increment counter',role:'Button'},tool:'click',arguments:{}}]});
+  check(native.ok&&read().clicks===3&&native.observation.timing.driverMs===0,'native task works without CUA daemon');
+  const slow=await call(offline,'sidescreen_steps',{...target,steps:[{selector:{label:'Slow acknowledgement',role:'Button'},tool:'click',arguments:{}}]});
+  check(slow.ok&&read().slowClicks===1&&slow.receipts[0].focus.Preserved,'delayed handler acknowledgement is delivered exactly once without activation');
+  const lease=await call(a,'sideuser_open',{...target,label:'Disconnect'});check(lease.ok,'disconnect fixture lease acquired');
+  await transports[0].close();await sleep(400);
+  const recovered=await call(b,'sideuser_open',{...target,label:'Recovered'});check(recovered.ok,'kernel lease released after transport disconnect');
+  await call(b,'sideuser_close',{session_id:recovered.sessionId});
+  const cancel=await connect();await call(cancel,'sidescreen_status',{});
+  check((await call(cancel,'sideuser_open',{...target,label:'Cancel'})).ok,'cancellation fixture lease acquired');
+  const controller=new AbortController();
+  const waiting=cancel.callTool({name:'sidescreen_wait',arguments:{...target,selector:{label:'does not exist'},timeout_ms:15000}},undefined,{signal:controller.signal});
+  await sleep(300);controller.abort();await assert.rejects(waiting);await sleep(500);
+  const afterCancel=await call(b,'sideuser_open',{...target,label:'After stop'});check(afterCancel.ok,'cancellation stops worker and releases kernel lease');
+  await call(b,'sideuser_close',{session_id:afterCancel.sessionId});
+  check((await call(b,'sidescreen_stop',{})).stopped,'explicit stop acknowledged');
+  check(!(await call(b,'sidescreen_windows',{})).ok,'stopped connection cannot perform more work');
+  check((await call(b,'sidescreen_status',{})).available,'fresh status creates a new post-stop connection');
+  console.log(`PASS: ${records.length} independent plugin MCP checks`);
+}finally {
+  for(const transport of transports)await transport.close().catch(()=>{});child.kill();
+  writeFileSync(path.join(output,'report.json'),JSON.stringify({records},null,2)+'\n');
+}

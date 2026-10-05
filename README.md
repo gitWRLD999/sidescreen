@@ -4,7 +4,7 @@
 
 Give agent windows somewhere to live, watch them in a passive preview, and bring them back when you need them. SideScreen manages an existing MTT virtual monitor and supplies a small JSON command interface for display status, window placement and screenshots.
 
-**Background input works for classic Windows controls, with optional CUA support for modern apps.** Native controls use direct messages. The [CUA adapter](docs/cua.md) adds snapshot-bound accessibility and pixel actions confined to a window on the virtual monitor, with background delivery fixed and foreground fallback refused. Windows monitors still share one input session. Use a [persistent VM](docs/isolation.md) for broader independent mouse/keyboard delivery. Provider and app behavior can still change focus; monitoring detects interference within its observation period.
+**Background input works for classic Windows controls, with optional CUA support for modern apps.** The independent [ChatGPT/Codex desktop plugin](plugins/sidescreen/README.md) supplies screenshots, accessibility actions, virtual input and private window leases. Native controls use direct messages. The [CUA adapter](docs/cua.md) confines actions to a window on the virtual monitor and refuses foreground fallback. Windows monitors still share one input session; compatibility is app-specific. Human foreground changes can stop work conservatively.
 
 ## What you get
 
@@ -12,9 +12,10 @@ Give agent windows somewhere to live, watch them in a passive preview, and bring
 - Window placement using `SWP_NOACTIVATE`, with a receipt reporting whether foreground focus and cursor position stayed the same.
 - JSON commands that agents can invoke locally or through an existing secure remote shell.
 - Scoped background input with one-use inspections, process identity checks, control readback, and foreground/keyboard-focus monitoring.
-- An optional persistent CUA adapter, a per-user restart supervisor, and eight scoped Muse/MCP tools. CUA is installed separately. [Muse Link](https://github.com/gitWRLD999/muse-link) combines these with regular Chrome tools in one agent connection.
+- An independent local desktop plugin with sixteen MCP tools, packaged native helpers, window leases, stop/cancellation handling and no Muse dependency.
+- An optional persistent CUA adapter and a per-user restart supervisor. CUA is installed separately. [Muse Link](https://github.com/gitWRLD999/muse-link) is a separate companion for remote connectivity and regular Chrome automation.
 - A free [SideCursor](docs/sidecursor.md) software pointer, scoped to a fresh window screenshot, with its own blue marker in the preview. Supported background operations preserve the human cursor; this does not create a separate Windows input session.
-- Free [SideUser input](docs/sideusers.md): original x64/x86 per-event cursor, modifier and capture state, drag, wheel, double-click and native edit keyboard operations. Muse Link adds window leases, labeled cursors, private text clipboards and named macros for agents.
+- Free [SideUser input](docs/sideusers.md): original x64/x86 per-event cursor, modifier and capture state, drag, wheel, double-click and native edit keyboard operations. The desktop plugin adds window leases, labeled cursors, private text clipboards and named macros for agents.
 - A scoped [Chrome activation guard](docs/chrome-focus.md) for Muse Link's native account chooser actions. It suppresses activation of the assigned background Chrome window without virtualizing physical keyboard or mouse input. The actual FedCM chooser was tested with fictional loopback accounts.
 - A passive preview that sends no keyboard or pointer input to the agent screen.
 - Support for physical monitors beyond the original laptop model, including displays positioned left of the primary monitor.
@@ -25,7 +26,7 @@ Early release: Windows x64, one active MTT virtual monitor. Driver binaries, rem
 ## Quick start
 
 1. Install [VirtualDrivers' Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) from its official release. Keep a physical display enabled and choose **Extend these displays** in Windows Display Settings.
-2. Download `SideScreen-0.7.0-win-x64.zip` from this repository's [releases](https://github.com/gitWRLD999/sidescreen/releases), or build from source below. Extract the whole folder. Run `SideScreen.exe`, or run `install-user.ps1 -StartTray -StartAtLogin` to copy the tools to `%USERPROFILE%\AgentTools\SideScreen`, install the Codex skill, and start the tray at future sign-ins. Omit `-StartAtLogin` if you want to launch it manually. For separately installed CUA, add `-StartCua -CuaAtLogin`; see [CUA setup](docs/cua.md).
+2. Download the latest SideScreen archive from this repository's [releases](https://github.com/gitWRLD999/sidescreen/releases), or build from source below. Extract the whole folder. Run `SideScreen.exe`, or run `install-user.ps1 -StartTray -StartAtLogin` to copy the tools to `%USERPROFILE%\AgentTools\SideScreen`, install the Codex skill, and start the tray at future sign-ins. Omit `-StartAtLogin` if you want to launch it manually. For separately installed CUA, add `-StartCua -CuaAtLogin`; see [CUA setup](docs/cua.md). Desktop plugin 1.0.0 and helper 0.8 are development packages until released; the local plugin bundles its own helpers.
 3. Open the tray controls. Use **View screen** for a preview; use the commands below to place a normal window on the agent screen.
 
 Windows requests elevation only when enabling or disabling the driver. Viewing, listing, capture and placement run as your ordinary Windows user. The app does not install a driver, change screen resolutions, or start a remote server.
@@ -65,7 +66,7 @@ For input, inspect first and select a returned element's advertised `Actions`. N
 
 Browser DOM automation and MouseMux are companion approaches for broader app coverage. The optional CUA adapter is tested on a disposable native app and WPF app. Broader compatibility remains app-specific. See [related projects](docs/related-projects.md) and the [agent integration guide](docs/agents.md).
 
-For Codex/ChatGPT computer use, install the [SideScreen skill](skills/sidescreen/SKILL.md) and read the [computer-use integration note](docs/chatgpt.md). Use read-only computer-use screenshots for observation and SideScreen `Inspect`/`Act` for supported background actions. Built-in ChatGPT Windows clicks/typing still activate their target; the skill does not patch that tool.
+For Codex/ChatGPT computer use, build/install the independent [desktop plugin](plugins/sidescreen/README.md) and read the [integration note](docs/chatgpt.md). The [CLI skill](skills/sidescreen/SKILL.md) remains available without MCP. Built-in ChatGPT Windows clicks/typing still activate their target; this plugin supplies a separate background route and does not patch that backend.
 The release's `install-user.ps1` installs the skill into the current user's Codex skill directory. Restart Codex or begin a new task if it does not discover a newly installed skill immediately.
 
 ## Build and verify
@@ -80,15 +81,20 @@ No NuGet packages or SDK downloads are required. Use Windows x64 with .NET Frame
 .\tests\cua-live.ps1 # optional: CUA 0.31 service must already be running
 .\tests\virtual-live.ps1 # optional: actual x64/x86 virtual input effects
 node .\tests\muse-adapter.mjs
+cd mcp
+npm ci
+npm test
+npm run build
+node validate-plugin.mjs
 ```
 
 The native preparation command builds both adapters from pinned dependencies. The C# build compiles the app and runs display-selection/layout tests. Live checks use disposable nonactivating windows and verify actual app effects, focus preservation and refusal paths. Keep the pointer still for the placement check; background-input tests allow human pointer movement. These tests do not move existing user windows.
 
-CI builds on Windows and runs the non-UI checks. See [validation](docs/validation.md) for the checks performed for this release and their limits.
+CI builds on Windows and runs the non-UI checks. See the [October 5 evaluation](docs/evaluation-20261005.md) for paired timings, desktop verification and limits.
 
 ## Privacy and lifecycle
 
-The tray and native input helper have no network listener, telemetry, credential store or model connection. Optional CUA uses a local named pipe; the SideScreen supervisor turns CUA child-process telemetry off. The Muse adapter uses the existing authenticated broker and adds no listener. Window titles/screenshots can contain private information; command output goes to the caller. Logs, short-lived observation records and CUA PNGs remain under `%USERPROFILE%\AgentTools\SideScreen\state`, outside the checkout. Native helpers have a 15-second outer timeout and CUA helpers a 30-second outer timeout. Retained CUA PNGs require user cleanup. Nothing is uploaded by the tray app.
+The tray and native input helper have no network listener, telemetry, credential store or model connection. Optional CUA uses a local named pipe; the SideScreen supervisor turns CUA child-process telemetry off. The Muse adapter uses the existing authenticated broker and adds no listener. Window titles/screenshots can contain private information; command output goes to the caller. Logs, short-lived observation records and CUA PNGs remain under `%USERPROFILE%\AgentTools\SideScreen\state`, outside the checkout. Native helpers have a 15-second outer timeout and CUA helpers a 30-second outer timeout. Expired UUID-named observation records and PNGs are removed after five minutes when another observation occurs; logs require user cleanup. Nothing is uploaded by the tray app.
 
 The tray app starts only when launched. To start it at sign-in, put a shortcut to `SideScreen.exe` in your own `shell:startup` folder. Driver enabled/disabled state is managed by Windows and can persist across restarts. Closing the tray app does not disable the display. No automatic topology restoration or input isolation is promised.
 

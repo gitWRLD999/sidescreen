@@ -14,6 +14,7 @@ class BackgroundProbe:Form {
     readonly ListBox list=new ListBox {Name="AgentList",Location=new Point(25,175),Size=new Size(220,100)};
     readonly Panel canvas=new Panel {Name="AgentCanvas",AccessibleName="Agent canvas",Location=new Point(25,290),Size=new Size(220,50),BackColor=Color.LightBlue};
     int clicks;
+    int slowClicks;
     int canvasClicks;
     Point canvasPointer=new Point(-1,-1);
     protected override bool ShowWithoutActivation {get{return true;}}
@@ -28,10 +29,12 @@ class BackgroundProbe:Form {
         Controls.Add(new CheckBox {Name="CustomCheck",Text="Custom checkbox",Location=new Point(280,245),Width=180});
         text.TextChanged+=delegate{Save();};button.Click+=delegate{clicks++;Save();};
         check.CheckedChanged+=delegate{Save();};list.SelectedIndexChanged+=delegate{Save();};
+        var slow=new Button {Name="SlowButton",Text="Slow acknowledgement",Location=new Point(280,290),Width=200};
+        slow.Click+=delegate{slowClicks++;Save();System.Threading.Thread.Sleep(1500);};Controls.Add(slow);
         canvas.MouseMove+=delegate(object sender,MouseEventArgs e){canvasPointer=e.Location;Save();};
         canvas.MouseDown+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Left){canvasClicks++;Save();}};
         Shown+=delegate{Save();};
     }
-    void Save() {var center=canvas.PointToScreen(new Point(canvas.Width/2,canvas.Height/2));File.WriteAllText(output,new JavaScriptSerializer().Serialize(new {handle=Handle.ToInt64(),text=text.Text,clicks=clicks,check=check.Checked,selection=list.SelectedIndex,canvasClicks=canvasClicks,canvasPointer=new {x=canvasPointer.X,y=canvasPointer.Y},canvasScreenCenter=new {x=center.X,y=center.Y},canvasWidth=canvas.Width,canvasHeight=canvas.Height}));}
+    void Save() {var center=canvas.PointToScreen(new Point(canvas.Width/2,canvas.Height/2));File.WriteAllText(output,new JavaScriptSerializer().Serialize(new {handle=Handle.ToInt64(),text=text.Text,clicks=clicks,slowClicks=slowClicks,check=check.Checked,selection=list.SelectedIndex,canvasClicks=canvasClicks,canvasPointer=new {x=canvasPointer.X,y=canvasPointer.Y},canvasScreenCenter=new {x=center.X,y=center.Y},canvasWidth=canvas.Width,canvasHeight=canvas.Height}));}
     [STAThread] static void Main(string[] args){SetThreadDpiAwarenessContext(new IntPtr(-4));Application.EnableVisualStyles();Application.Run(new BackgroundProbe(args[0]));}
 }

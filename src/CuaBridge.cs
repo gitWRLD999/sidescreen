@@ -21,6 +21,7 @@ namespace SideScreen {
         public int MaxElements=256, MaxDepth=20, MaxImageDimension=1280;
         public string Query;
         public Dictionary<string,object> Arguments;
+        internal bool NativeOnly;
     }
     public sealed class CuaObservation {
         public string Id, DisplayId, NativeId, CaptureId, ScreenshotPath;
@@ -32,6 +33,7 @@ namespace SideScreen {
         public double CaptureOriginX,CaptureOriginY,CaptureScaleX,CaptureScaleY;
         public Dictionary<string,object>[] Elements;
         public ElementInfo[] NativeElements;
+        public bool NativeOnly;
     }
     public static class CuaBridge {
         [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
@@ -52,6 +54,7 @@ namespace SideScreen {
         static System.Threading.Tasks.Task<string> driverLine;
         static int rpcId;
         static readonly Dictionary<string,InputGuard> guards=new Dictionary<string,InputGuard>();
+        static readonly Dictionary<long,Mutex> leases=new Dictionary<long,Mutex>();
         static void WriteDriver(object message) {
             byte[] bytes=Encoding.UTF8.GetBytes(Json.Serialize(message)+"\n");
             driverProcess.StandardInput.BaseStream.Write(bytes,0,bytes.Length);driverProcess.StandardInput.BaseStream.Flush();
@@ -140,10 +143,43 @@ namespace SideScreen {
             if((tool=="type_text" || tool=="set_value" || tool=="press_key" || tool=="hotkey") && !args.ContainsKey("element_token"))throw new InvalidOperationException("Text and keyboard actions require a returned element_token.");
             foreach(string key in new[]{"text","value"})if(args.ContainsKey(key) && (!(args[key] is string) || ((string)args[key]).Length>32768 || ((string)args[key]).Contains("\0")))throw new InvalidOperationException("Invalid text value.");
         }
+        static void CleanObservationState() {
+            Directory.CreateDirectory(State);
+            // Consumed observations leave PNGs behind. Only our UUID-named,
+            // expired files are eligible, including orphaned screenshots.
+            foreach(string file in Directory.GetFiles(State)) {
+                string extension=Path.GetExtension(file);Guid id;
+                if((extension==".json" || extension==".png") && Guid.TryParseExact(Path.GetFileNameWithoutExtension(file),"N",out id) && File.GetLastWriteTimeUtc(file)<DateTime.UtcNow.AddMinutes(-5)) {
+                    try{File.Delete(file);}catch(IOException){}catch(UnauthorizedAccessException){}
+                }
+            }
+        }
+        static object Identity(CuaObservation o) {return new {windowHandle=o.WindowHandle,processId=o.ProcessId,processStartTicks=o.ProcessStartTicks.ToString(),displayId=o.DisplayId,bounds=o.Bounds};}
+        // For named classic controls there is no need to start CUA, capture an
+        // image or walk UIA twice. These observations cannot dispatch via CUA.
+        static object NativeObserve(CuaRequest request) {
+            var clock=Stopwatch.StartNew();
+            CleanObservationState();
+            var window=BackgroundInput.Scope(request.WindowHandle,request.ExpectedDisplayId);
+            var inspected=Json.Deserialize<Dictionary<string,object>>(Json.Serialize(BackgroundInput.Inspect(new InputRequest {Action="Inspect",WindowHandle=window.Handle,ExpectedDisplayId=request.ExpectedDisplayId})));
+            var native=Json.Deserialize<Observation>(Json.Serialize(inspected["observation"]));
+            var observation=new CuaObservation {Id=Guid.NewGuid().ToString("N"),NativeId=native.Id,DisplayId=native.DisplayId,WindowHandle=native.WindowHandle,ProcessId=native.ProcessId,ProcessStartTicks=native.ProcessStartTicks,ExpiresUtcTicks=native.ExpiresUtcTicks,Bounds=window.Bounds,NativeElements=native.Elements,NativeOnly=true};
+            observation.Elements=native.Elements.Select(e=>new Dictionary<string,object> {
+                {"element_token","native-"+observation.Id+":"+e.Id}, {"label",e.Name}, {"role",e.ControlType.Replace("ControlType.","")}, {"enabled",e.Enabled && !e.Offscreen},
+                {"actions",e.Actions.Select(a=>a=="SetValue"?"set_value":a.ToLowerInvariant()).ToArray()},
+                {"frame",new {x=e.Bounds.X,y=e.Bounds.Y,w=e.Bounds.Width,h=e.Bounds.Height}},
+                {"sidescreen_native_set_value",e.Actions.Contains("SetValue")}, {"sidescreen_text_refused",e.IsPassword || e.IsReadOnly},
+                {"sidescreen_route","native-control-messages"}
+            }).ToArray();
+            var current=BackgroundInput.Scope(window.Handle,request.ExpectedDisplayId);
+            if(current.ProcessId!=window.ProcessId || current.Bounds!=window.Bounds)throw new InvalidOperationException("Window changed during observation; observe again.");
+            Directory.CreateDirectory(State);
+            File.WriteAllText(Path.Combine(State,observation.Id+".json"),Json.Serialize(observation));
+            return new {ok=true,backend="native-control-messages",observationId=observation.Id,scope=Identity(observation),expiresInSeconds=120,windowHandle=window.Handle,displayId=observation.DisplayId,state=new {elements=observation.Elements,element_count=observation.Elements.Length},screenshotPath=(string)null,timing=new {driverMs=0,corroborationMs=clock.ElapsedMilliseconds,totalMs=clock.ElapsedMilliseconds}};
+        }
         static object Observe(CuaRequest request) {
             var window=BackgroundInput.Scope(request.WindowHandle,request.ExpectedDisplayId);
-            Directory.CreateDirectory(State);
-            foreach(string old in Directory.GetFiles(State,"*.json"))if(File.GetLastWriteTimeUtc(old)<DateTime.UtcNow.AddMinutes(-5))File.Delete(old);
+            CleanObservationState();
             var observation=new CuaObservation {Id=Guid.NewGuid().ToString("N"),DisplayId=request.ExpectedDisplayId,WindowHandle=window.Handle,ProcessId=window.ProcessId,ProcessStartTicks=Process.GetProcessById((int)window.ProcessId).StartTime.ToUniversalTime().Ticks,ExpiresUtcTicks=DateTime.UtcNow.AddMinutes(2).Ticks,Bounds=window.Bounds};
             var clock=Stopwatch.StartNew();
             var args=Target(observation);args["max_elements"]=Math.Max(1,Math.Min(512,request.MaxElements));args["max_depth"]=Math.Max(1,Math.Min(50,request.MaxDepth));args["timeout_ms"]=5000;args["include_screenshot"]=request.IncludeScreenshot;args["include_accessibility_tree"]=request.IncludeAccessibilityTree;
@@ -189,13 +225,14 @@ namespace SideScreen {
             var current=BackgroundInput.Scope(window.Handle,request.ExpectedDisplayId);
             if(current.ProcessId!=window.ProcessId || current.Bounds!=window.Bounds)throw new InvalidOperationException("Window changed during observation; observe again.");
             File.WriteAllText(Path.Combine(State,observation.Id+".json"),Json.Serialize(observation));
-            return new {ok=true,backend="cua-driver",observationId=observation.Id,expiresInSeconds=120,windowHandle=window.Handle,displayId=observation.DisplayId,state=result,screenshotPath=observation.ScreenshotPath,timing=new {driverMs=driverMs,corroborationMs=clock.ElapsedMilliseconds-driverMs,totalMs=clock.ElapsedMilliseconds},image=new {width=observation.ImageWidth,height=observation.ImageHeight,windowWidth=observation.Bounds.Width,windowHeight=observation.Bounds.Height,coordinates="capture pixels; capture_id required"}};
+            return new {ok=true,backend="cua-driver",observationId=observation.Id,scope=Identity(observation),expiresInSeconds=120,windowHandle=window.Handle,displayId=observation.DisplayId,state=result,screenshotPath=observation.ScreenshotPath,timing=new {driverMs=driverMs,corroborationMs=clock.ElapsedMilliseconds-driverMs,totalMs=clock.ElapsedMilliseconds},image=new {width=observation.ImageWidth,height=observation.ImageHeight,windowWidth=observation.Bounds.Width,windowHeight=observation.Bounds.Height,coordinates="capture pixels; capture_id required"}};
         }
         static object Act(CuaRequest request) {
             Guid id;if(!Guid.TryParseExact(request.ObservationId,"N",out id))throw new InvalidOperationException("Provide ObservationId from CuaObserve.");
             string path=Path.Combine(State,id.ToString("N")+".json");
             if(!File.Exists(path))throw new InvalidOperationException("Observation missing or consumed; observe again.");
             var observation=Json.Deserialize<CuaObservation>(File.ReadAllText(path));File.Delete(path);
+            request.NativeOnly=observation.NativeOnly;
             if(observation.ExpiresUtcTicks<DateTime.UtcNow.Ticks || observation.DisplayId!=request.ExpectedDisplayId || observation.WindowHandle!=request.WindowHandle)throw new InvalidOperationException("Expired or mismatched observation.");
             var window=BackgroundInput.Scope(request.WindowHandle,request.ExpectedDisplayId);
             if(window.ProcessId!=observation.ProcessId || Process.GetProcessById((int)window.ProcessId).StartTime.ToUniversalTime().Ticks!=observation.ProcessStartTicks || window.Bounds!=observation.Bounds)throw new InvalidOperationException("Window process/geometry changed; observe again.");
@@ -249,6 +286,7 @@ namespace SideScreen {
                 args["capture_id"]=observation.CaptureId;
             }
             foreach(var entry in Target(observation))args[entry.Key]=entry.Value;
+            if(observation.NativeOnly)throw new InvalidOperationException("This native observation supports advertised classic control actions only; no CUA or foreground fallback.");
             args["delivery_mode"]="background";
             bool dispatched=false;Dictionary<string,object> result=null;string error=null;FocusReceipt focus;
             using(var guard=new InputGuard(window.Handle)) {
@@ -263,6 +301,19 @@ namespace SideScreen {
             return new {ok=ok,stop=!ok,dispatched=dispatched,backend="cua-driver",deliveryMode="background",universalIsolation=false,driver=result,focus=focus,error=error??(!focus.Preserved?"Foreground or keyboard focus changed; stop and observe.":null)};
         }
         public static object Execute(CuaRequest request) {
+            if(request.Action=="LeaseWindow") {
+                BackgroundInput.Scope(request.WindowHandle,request.ExpectedDisplayId);
+                if(leases.ContainsKey(request.WindowHandle))throw new InvalidOperationException("Window already leased by this connection.");
+                var lease=new Mutex(false,BackgroundInput.LeaseName(request.WindowHandle));
+                bool held=false;try{try{held=lease.WaitOne(0);}catch(AbandonedMutexException){held=true;}
+                    if(!held)throw new InvalidOperationException("Window leased by another SideScreen connection.");
+                    leases.Add(request.WindowHandle,lease);return new {ok=true,windowHandle=request.WindowHandle};
+                }catch{if(held)lease.ReleaseMutex();lease.Dispose();throw;}
+            }
+            if(request.Action=="UnleaseWindow") {
+                Mutex lease;if(!leases.TryGetValue(request.WindowHandle,out lease))throw new InvalidOperationException("No window lease owned by this connection.");
+                leases.Remove(request.WindowHandle);lease.ReleaseMutex();lease.Dispose();return new {ok=true};
+            }
             if(request.Action=="VirtualRelease") {
                 var w=BackgroundInput.Scope(request.WindowHandle,request.ExpectedDisplayId);
                 if(w.ProcessId!=request.ExpectedProcessId||Process.GetProcessById((int)w.ProcessId).StartTime.ToUniversalTime().Ticks.ToString()!=request.ExpectedProcessStartTicks)throw new InvalidOperationException("Release process identity changed.");
@@ -289,10 +340,11 @@ namespace SideScreen {
                 if(virtualDisplays.Length==1){var d=virtualDisplays[0];screen=new {id=Layout.Id(d),deviceName=d.GdiName,x=d.X,y=d.Y,width=d.Width,height=d.Height};}
                 bool ready=false;string healthError=null;
                 if(File.Exists(Binary)){try{var probe=Driver("list_windows",new Dictionary<string,object>{{"pid",Process.GetCurrentProcess().Id}},5000);ready=!Failed(probe);if(!ready)healthError="CUA refused readiness probe";}catch(Exception e){healthError=e.Message;}}
-                return new {ok=true,available=safeLayout,nonOverlapping=safeLayout,agentScreen=screen,installed=File.Exists(Binary),ready=ready,healthError=healthError,binary=Binary,socket=Socket,inputIsolation=false,virtualInputInstalled=VirtualInput.Installed,deliveryMode="background",tools=new[]{"click","set_value","type_text","scroll","press_key","hotkey"},version="0.7.0"};
+                return new {ok=true,available=safeLayout,nonOverlapping=safeLayout,agentScreen=screen,installed=File.Exists(Binary),ready=ready,healthError=healthError,binary=Binary,socket=Socket,inputIsolation=false,virtualInputInstalled=VirtualInput.Installed,nativeObservation=true,deliveryMode="background",tools=new[]{"click","set_value","type_text","scroll","press_key","hotkey"},version="0.8.0"};
             }
             if(request.Action=="Windows")return new {ok=true,windows=Windows.ListOnAgentDisplay()};
             if(request.Action=="CuaObserve")return Observe(request);
+            if(request.Action=="NativeObserve")return NativeObserve(request);
             if(request.Action=="CuaAct")return Act(request);
             if(request.Action=="SideCursorAct")return Act(request);
             if(request.Action=="VirtualAct")return Act(request);
@@ -306,7 +358,7 @@ namespace SideScreen {
                     if(!held)throw new InvalidOperationException("Another SideScreen action is running.");
                     try{return Execute(request);}finally {
                         Guid id;
-                        if(request!=null && (request.Action=="CuaAct" || request.Action=="SideCursorAct" || request.Action=="VirtualAct") && Guid.TryParseExact(request.ObservationId,"N",out id)) {
+                        if(request!=null && !request.NativeOnly && (request.Action=="CuaAct" || request.Action=="SideCursorAct" || request.Action=="VirtualAct") && Guid.TryParseExact(request.ObservationId,"N",out id)) {
                             try{Driver("end_session",new Dictionary<string,object>{{"session","sidescreen-"+id.ToString("N")}},1500);}catch{}
                         }
                     }
@@ -328,7 +380,7 @@ namespace SideScreen {
                 }
                 string output=Json.Serialize(ExecuteLocked(Json.Deserialize<CuaRequest>(Console.In.ReadToEnd())));Console.WriteLine(output);
                 return Convert.ToBoolean(Json.Deserialize<Dictionary<string,object>>(output)["ok"])?0:1;
-            }catch(Exception ex){Console.WriteLine(Json.Serialize(new {ok=false,stop=true,error=ex.Message}));return 1;}finally{foreach(var guard in guards.Values)guard.Dispose();VirtualInput.Close();CloseDriver();}
+            }catch(Exception ex){Console.WriteLine(Json.Serialize(new {ok=false,stop=true,error=ex.Message}));return 1;}finally{foreach(var guard in guards.Values)guard.Dispose();foreach(var lease in leases.Values){lease.ReleaseMutex();lease.Dispose();}VirtualInput.Close();CloseDriver();}
         }
     }
 }

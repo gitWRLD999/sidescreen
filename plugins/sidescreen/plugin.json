@@ -1,0 +1,75 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "sidescreen",
+  "version": "1.0.0",
+  "description": "Use a dedicated virtual Windows monitor for desktop tasks through scoped background input, screenshots and private agent cursor/keyboard state.",
+  "author": {
+    "name": "gitWRLD999",
+    "url": "https://github.com/gitWRLD999"
+  },
+  "homepage": "https://github.com/gitWRLD999/sidescreen",
+  "repository": "https://github.com/gitWRLD999/sidescreen",
+  "license": "MIT",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "SideScreen",
+        "shortDescription": "Agent work beside your desktop",
+        "longDescription": "Give ChatGPT or Codex its own virtual Windows monitor. This independent local desktop plugin uses fresh window-bound observations, background actions, private cursors and window leases. Supported routes avoid moving the human pointer or activating the agent window. Requires an active virtual display and Node, with CUA Driver for modern controls. Native helpers are bundled. It does not create a separate Windows input session or patch the built-in input backend. Unsupported controls stop without foreground fallback. Muse connectivity and browser DOM automation are separate.",
+        "developerName": "gitWRLD999",
+        "category": "Productivity",
+        "capabilities": [
+          "Read",
+          "Write",
+          "Interactive"
+        ],
+        "websiteURL": "https://github.com/gitWRLD999/sidescreen",
+        "privacyPolicyURL": "https://github.com/gitWRLD999/sidescreen/blob/main/docs/privacy.md",
+        "termsOfServiceURL": "https://github.com/gitWRLD999/sidescreen/blob/main/LICENSE",
+        "logo": "./assets/logo.png",
+        "composerIcon": "./assets/logo.png",
+        "brandColor": "#0B84F3",
+        "defaultPrompt": [
+          "Use SideScreen to complete this desktop task while I keep working.",
+          "Use SideScreen to edit a document without taking my mouse or keyboard focus."
+        ]
+      },
+      "hooks": {
+        "hooks": {
+          "Stop": [
+            {
+              "hooks": [
+                {
+                  "input": {
+                    "turn_id": "${turn_id}",
+                    "hook_event_name": "${hook_event_name}",
+                    "session_id": "${session_id}"
+                  },
+                  "server": "sidescreen",
+                  "tool": "sidescreen_stop",
+                  "type": "mcp_tool"
+                }
+              ]
+            }
+          ],
+          "Interrupt": [
+            {
+              "hooks": [
+                {
+                  "input": {
+                    "turn_id": "${turn_id}",
+                    "hook_event_name": "${hook_event_name}",
+                    "session_id": "${session_id}"
+                  },
+                  "server": "sidescreen",
+                  "tool": "sidescreen_stop",
+                  "type": "mcp_tool"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}
